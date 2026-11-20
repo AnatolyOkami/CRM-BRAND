@@ -132,3 +132,33 @@ select count(sub.id) as is_initialized
 from (
     select sales.id from public.sales limit 1
 ) sub;
+
+-- Money of every deal for the analytics screen. security_invoker: the rows follow the rights of the
+-- person who asks (a manager sees own deals, the sales head all), payments included.
+create or replace view public.deals_finance with (security_invoker = on) as
+select
+    d.id,
+    d.name,
+    d.stage,
+    d.sales_id,
+    d.company_id,
+    d.expected_closing_date,
+    d.amount,
+    d.archived_at,
+    d.received_at,
+    coalesce(nullif(btrim(co.name), ''), nullif(btrim(coalesce(c.first_name, '') || ' ' || coalesce(c.last_name, '')), ''), '') as customer_name,
+    coalesce(p.paid, 0)::bigint as paid,
+    -- unknown price: no balance
+    case when d.amount is null then null else d.amount - coalesce(p.paid, 0) end::bigint as balance,
+    o.id as order_id,
+    o.stage as order_stage,
+    o.due_date as order_due_date
+from public.deals d
+    left join public.companies co on co.id = d.company_id
+    left join public.contacts c on c.id = d.contact_ids[1]
+    left join lateral (
+        select sum(case when dp.kind = 'refund' then - dp.amount else dp.amount end) as paid
+        from public.deal_payments dp
+        where dp.deal_id = d.id
+    ) p on true
+    left join public.production_orders o on o.deal_id = d.id;

@@ -25,6 +25,7 @@ import { SignupPage } from "../login/SignupPage";
 import { ConfirmationRequired } from "../login/ConfirmationRequired";
 import { ImportPage } from "../misc/ImportPage";
 import { ChangelogPage } from "../misc/ChangelogPage";
+import { AnalyticsPage } from "../analytics/AnalyticsPage";
 import { ProductionBoard } from "../production/ProductionBoard";
 import { TasksPage } from "../tasks/TasksPage";
 import { Landing } from "./Landing";
@@ -265,6 +266,7 @@ const DesktopAdmin = (
         <Route path={ChangelogPage.path} element={<ChangelogPage />} />
         <Route path={TasksPage.path} element={<TasksPage />} />
         <Route path="/production" element={<ProductionBoard />} />
+        <Route path={AnalyticsPage.path} element={<AnalyticsPage />} />
       </CustomRoutes>
       <Resource name="deals" {...deals} />
       <Resource name="contacts" {...contacts} />

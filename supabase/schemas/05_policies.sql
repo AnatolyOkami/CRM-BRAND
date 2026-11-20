@@ -159,3 +159,9 @@ create policy "Order history follows order visibility" on public.order_stage_his
 create policy "Notifications belong to their recipient" on public.notification_events for select to authenticated using (
     recipient_sales_id = (select private.current_sales_id())
 );
+
+-- Payments follow the visibility of the deal and are written only by register_payment
+alter table public.deal_payments enable row level security;
+create policy "Payments follow deal visibility" on public.deal_payments for select to authenticated using (
+    (select private.is_sales_staff()) and exists (select 1 from public.deals d where d.id = deal_payments.deal_id)
+);

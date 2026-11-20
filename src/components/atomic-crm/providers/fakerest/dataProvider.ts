@@ -15,6 +15,7 @@ import type {
   Deal,
   DealNote,
   DealCommandResult,
+  FinanceSummary,
   ManualDealData,
   NotificationEvent,
   Sale,
@@ -428,6 +429,18 @@ export const createDataProvider = ({
       throw new DealCommandError("not_available_in_demo");
     },
     getPendingNotifications: async (): Promise<NotificationEvent[]> => [],
+    registerPayment: async () => {
+      throw new DealCommandError("not_available_in_demo");
+    },
+    getFinanceSummary: async (): Promise<FinanceSummary> => ({
+      total_count: 0,
+      in_work_count: 0,
+      in_work_amount: 0,
+      in_work_without_amount: 0,
+      paid: 0,
+      remaining: 0,
+      overpaid: 0,
+    }),
     uploadOrderFile: async (): Promise<UploadedOrderFile> => {
       throw new DealCommandError("not_available_in_demo");
     },

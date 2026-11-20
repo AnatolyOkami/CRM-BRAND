@@ -1,4 +1,5 @@
 import {
+  BarChart3,
   Building2,
   CheckSquare,
   Factory,
@@ -36,6 +37,12 @@ const SALES_ITEMS: MenuItem[] = [
     labelKey: "crm.menu.sales",
     icon: KanbanSquare,
     match: "/deals/*",
+  },
+  {
+    to: "/analytics",
+    labelKey: "crm.menu.analytics",
+    icon: BarChart3,
+    match: "/analytics/*",
   },
   {
     to: "/contacts",

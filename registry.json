@@ -408,6 +408,42 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/production/useOrderCommands.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/production/orderBoardUtils.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/production/ProductionBoard.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/production/OrderMaterials.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/production/OrderIndicators.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/production/OrderDialog.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/notifications/useNotifications.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/notifications/NotificationDock.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/notifications/DealNotificationBanner.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/notes/utils.ts",
           "type": "registry:component"
         },
@@ -652,11 +688,19 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/deals/handoffUtils.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/deals/dealUtils.ts",
           "type": "registry:component"
         },
         {
           "path": "src/components/atomic-crm/deals/boardUtils.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/deals/PaymentDialog.tsx",
           "type": "registry:component"
         },
         {
@@ -668,7 +712,19 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/deals/HandoffDialog.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/deals/DealShow.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/deals/DealPayments.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/deals/DealOrderBlock.tsx",
           "type": "registry:component"
         },
         {
@@ -709,6 +765,10 @@
         },
         {
           "path": "src/components/atomic-crm/deals/DealArchivedList.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/deals/ContractDialog.tsx",
           "type": "registry:component"
         },
         {
@@ -965,6 +1025,26 @@
         },
         {
           "path": "src/components/atomic-crm/companies/AutocompleteCompanyInput.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/analytics/financeUtils.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/analytics/FinanceTable.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/analytics/FinanceSummaryCards.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/analytics/FinanceFiltersBar.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/analytics/AnalyticsPage.tsx",
           "type": "registry:component"
         },
         {

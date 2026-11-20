@@ -102,6 +102,10 @@ export const getNeighborId = <T extends { id: unknown }>(
 };
 
 const KNOWN_ERRORS = new Set([
+  "refund_exceeds_paid",
+  "invalid_amount",
+  "invalid_kind",
+  "payment_in_future",
   "handoff_required",
   "in_production_locked",
   "won_requires_ready_order",

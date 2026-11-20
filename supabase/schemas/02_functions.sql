@@ -1372,3 +1372,95 @@ begin
   return jsonb_build_object('id', v_row.id, 'opened_at', v_row.opened_at, 'acknowledged_at', v_row.acknowledged_at);
 end;
 $$;
+
+--
+-- Payments and analytics
+--
+
+CREATE OR REPLACE FUNCTION "public"."register_payment"("p_deal_id" bigint, "p_kind" "text", "p_amount" bigint, "p_paid_at" "date" DEFAULT NULL::"date", "p_comment" "text" DEFAULT NULL::"text", "p_request_key" "text" DEFAULT NULL::"text") RETURNS "jsonb"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_uid uuid := (select auth.uid());
+  v_me bigint := private.current_sales_id();
+  v_head boolean;
+  v_deal public.deals%rowtype;
+  v_res jsonb;
+  v_paid bigint;
+  v_payment_id bigint;
+  v_date date := coalesce(p_paid_at, current_date);
+begin
+  if v_uid is null or v_me is null then
+    raise exception 'not_authenticated' using errcode = 'PT401';
+  end if;
+  if not private.is_sales_staff() then
+    raise exception 'forbidden' using errcode = 'PT403';
+  end if;
+  v_head := private.is_sales_head();
+
+  v_res := private.command_replay(v_uid, p_request_key, 'register_payment');
+  if v_res is not null then
+    return v_res;
+  end if;
+
+  if p_kind is null or p_kind not in ('payment', 'refund') then
+    raise exception 'invalid_kind' using errcode = 'PT422';
+  end if;
+  if p_amount is null or p_amount <= 0 or p_amount > 1000000000 then
+    raise exception 'invalid_amount' using errcode = 'PT422';
+  end if;
+  if v_date > current_date then
+    raise exception 'payment_in_future' using errcode = 'PT422';
+  end if;
+
+  -- The lock serializes the payments of one deal: two refunds cannot both pass the check below
+  select * into v_deal from public.deals where id = p_deal_id for update;
+  if not found or v_deal.archived_at is not null then
+    raise exception 'deal_not_found' using errcode = 'PT404';
+  end if;
+  if not v_head and v_deal.sales_id is distinct from v_me then
+    raise exception 'not_your_deal' using errcode = 'PT403';
+  end if;
+
+  select coalesce(sum(case when dp.kind = 'refund' then - dp.amount else dp.amount end), 0)
+    into v_paid from public.deal_payments dp where dp.deal_id = p_deal_id;
+  if p_kind = 'refund' and p_amount > v_paid then
+    raise exception 'refund_exceeds_paid' using errcode = 'PT422';
+  end if;
+
+  insert into public.deal_payments (deal_id, kind, amount, paid_at, comment, created_by)
+  values (p_deal_id, p_kind, p_amount, v_date, nullif(btrim(coalesce(p_comment, '')), ''), v_me)
+  returning id into v_payment_id;
+
+  v_paid := v_paid + case when p_kind = 'refund' then - p_amount else p_amount end;
+  return private.command_store(v_uid, p_request_key, 'register_payment', p_deal_id, jsonb_build_object(
+    'payment_id', v_payment_id, 'deal_id', p_deal_id, 'paid', v_paid,
+    'balance', case when v_deal.amount is null then null else v_deal.amount - v_paid end,
+    'replayed', false));
+end;
+$$;
+
+-- Totals of the analytics screen over the WHOLE selection, not over a page. It reads the view with the
+-- rights of the caller, so the numbers follow the same filters and rights as the table.
+-- "In work" is every open deal: closed (lost) and finished (won) deals are left out of it.
+CREATE OR REPLACE FUNCTION "public"."deals_finance_summary"("p_stages" "text"[] DEFAULT NULL::"text"[], "p_sales_id" bigint DEFAULT NULL::bigint, "p_closing_from" "date" DEFAULT NULL::"date", "p_closing_to" "date" DEFAULT NULL::"date") RETURNS "jsonb"
+    LANGUAGE "sql" STABLE
+    SET "search_path" TO ''
+    AS $$
+  select jsonb_build_object(
+    'total_count', count(*),
+    'in_work_count', count(*) filter (where f.stage not in ('won', 'lost')),
+    'in_work_amount', coalesce(sum(f.amount) filter (where f.stage not in ('won', 'lost')), 0),
+    'in_work_without_amount', count(*) filter (where f.stage not in ('won', 'lost') and f.amount is null),
+    'paid', coalesce(sum(f.paid) filter (where f.stage not in ('won', 'lost')), 0),
+    'remaining', coalesce(sum(greatest(f.balance, 0)) filter (where f.stage not in ('won', 'lost')), 0),
+    'overpaid', coalesce(sum(greatest(- f.balance, 0)) filter (where f.stage not in ('won', 'lost')), 0)
+  )
+  from public.deals_finance f
+  where f.archived_at is null
+    and (p_stages is null or f.stage = any (p_stages))
+    and (p_sales_id is null or f.sales_id = p_sales_id)
+    and (p_closing_from is null or f.expected_closing_date >= p_closing_from)
+    and (p_closing_to is null or f.expected_closing_date <= p_closing_to)
+$$;

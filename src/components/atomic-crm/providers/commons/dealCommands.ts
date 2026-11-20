@@ -79,3 +79,21 @@ export type OrderTransitionResult = {
   notified: boolean;
   replayed: boolean;
 };
+
+export type PaymentParams = {
+  dealId: Identifier;
+  kind: "payment" | "refund";
+  /** Whole rubles */
+  amount: number;
+  paidAt?: string;
+  comment?: string;
+  requestKey?: string;
+};
+
+/** Filters of the totals: the same ones the table uses. */
+export type FinanceSummaryArgs = {
+  stages: string[] | null;
+  salesId: Identifier | null;
+  closingFrom: string | null;
+  closingTo: string | null;
+};

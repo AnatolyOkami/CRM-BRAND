@@ -12,6 +12,7 @@ import type {
   Deal,
   DealCommandResult,
   DealNote,
+  FinanceSummary,
   ManualDealData,
   NotificationEvent,
   StaffRole,
@@ -29,8 +30,10 @@ import {
   DealCommandError,
   newRequestKey,
   type AssignDealParams,
+  type FinanceSummaryArgs,
   type HandoffParams,
   type OrderTransitionResult,
+  type PaymentParams,
   type TransitionDealParams,
   type TransitionOrderParams,
 } from "../commons/dealCommands";
@@ -310,6 +313,41 @@ const getDataProviderWithCustomMethods = () => {
         throw new DealCommandError(error.message, status);
       }
       return data as OrderTransitionResult;
+    },
+    async registerPayment({
+      dealId,
+      kind,
+      amount,
+      paidAt,
+      comment,
+      requestKey = newRequestKey(),
+    }: PaymentParams) {
+      const { error, status } = await getSupabaseClient().rpc(
+        "register_payment",
+        {
+          p_deal_id: dealId,
+          p_kind: kind,
+          p_amount: amount,
+          p_paid_at: paidAt ?? null,
+          p_comment: comment ?? null,
+          p_request_key: requestKey,
+        },
+      );
+      if (error) throw new DealCommandError(error.message, status);
+    },
+    /** Totals of the analytics screen over the whole selection, with the rights of the caller. */
+    async getFinanceSummary(args: FinanceSummaryArgs): Promise<FinanceSummary> {
+      const { data, error } = await getSupabaseClient().rpc(
+        "deals_finance_summary",
+        {
+          p_stages: args.stages,
+          p_sales_id: args.salesId,
+          p_closing_from: args.closingFrom,
+          p_closing_to: args.closingTo,
+        },
+      );
+      if (error) throw error;
+      return data as FinanceSummary;
     },
     async openNotification(id: Identifier) {
       const { error, status } = await getSupabaseClient().rpc(

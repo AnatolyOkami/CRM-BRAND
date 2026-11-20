@@ -35,6 +35,7 @@ import { getReplyStatus } from "./boardUtils";
 import { ContactList } from "./ContactList";
 import { DealHistory } from "./DealHistory";
 import { DealOrderBlock } from "./DealOrderBlock";
+import { DealPayments } from "./DealPayments";
 import {
   findDealLabel,
   formatDealCategories,
@@ -237,6 +238,11 @@ const DealShowContent = () => {
 
           <div className="m-4 empty:hidden">
             <DealOrderBlock dealId={record.id} />
+          </div>
+
+          <div className="m-4">
+            <Separator className="mb-4" />
+            <DealPayments dealId={record.id} />
           </div>
 
           {!!record.contact_ids?.length && (

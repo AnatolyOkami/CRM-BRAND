@@ -257,3 +257,21 @@ grant all on sequence public.production_orders_id_seq to service_role;
 grant all on sequence public.production_order_materials_id_seq to service_role;
 grant all on sequence public.order_stage_history_id_seq to service_role;
 grant all on sequence public.notification_events_id_seq to service_role;
+
+--
+-- Payments and analytics
+--
+
+revoke all on function public.register_payment(bigint, text, bigint, date, text, text) from public, anon;
+grant execute on function public.register_payment(bigint, text, bigint, date, text, text) to authenticated, service_role;
+revoke all on function public.deals_finance_summary(text[], bigint, date, date) from public, anon;
+grant execute on function public.deals_finance_summary(text[], bigint, date, date) to authenticated, service_role;
+
+revoke all on table public.deal_payments from anon, authenticated;
+grant select on table public.deal_payments to authenticated;
+grant all on table public.deal_payments to service_role;
+grant all on sequence public.deal_payments_id_seq to service_role;
+
+revoke all on table public.deals_finance from anon, authenticated;
+grant select on table public.deals_finance to authenticated;
+grant all on table public.deals_finance to service_role;

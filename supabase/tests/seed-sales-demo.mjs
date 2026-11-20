@@ -175,6 +175,27 @@ await call(anna.token, "POST", "/rest/v1/rpc/handoff_deal_to_production", {
   p_links: [{ url: "https://example.com/maket", label: "Макет в облаке" }],
 });
 
+// Money: the example of the acceptance, 30 000 + 20 000 paid and 5 000 refunded of 85 000
+const pay = (who, dealId, kind, amount, comment) =>
+  call(who.token, "POST", "/rest/v1/rpc/register_payment", {
+    p_deal_id: dealId,
+    p_kind: kind,
+    p_amount: amount,
+    p_comment: comment ?? null,
+  });
+await pay(anna, mine.deal_id, "payment", 30000, "Аванс");
+await pay(anna, mine.deal_id, "payment", 20000, "Вторая часть");
+await pay(anna, mine.deal_id, "refund", 5000, "Возврат за доставку");
+const inDays = (days) =>
+  new Date(Date.now() + days * 86400_000).toISOString().slice(0, 10);
+await call(anna.token, "PATCH", `/rest/v1/deals?id=eq.${mine.deal_id}`, {
+  expected_closing_date: inDays(-2),
+});
+await pay(anna, handed.deal_id, "payment", 150000, "Предоплата с переплатой");
+await call(anna.token, "PATCH", `/rest/v1/deals?id=eq.${handed.deal_id}`, {
+  expected_closing_date: inDays(10),
+});
+
 await call(head.token, "POST", "/rest/v1/deals", {
   name: "Баннер для стадиона (2025)",
   stage: "won",

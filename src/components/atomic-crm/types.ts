@@ -369,3 +369,40 @@ export type SearchResult = {
   /** The searched fields, to show and highlight where the query matched. */
   content: string | null;
 };
+
+export type DealPayment = {
+  deal_id: Identifier;
+  kind: "payment" | "refund";
+  amount: number;
+  paid_at: string;
+  comment: string | null;
+  currency: string;
+  created_by: Identifier | null;
+  created_at: string;
+} & Pick<RaRecord, "id">;
+
+/** A row of the analytics table: the money of one deal. */
+export type DealFinanceRow = {
+  name: string;
+  stage: string;
+  sales_id: Identifier | null;
+  customer_name: string;
+  expected_closing_date: string | null;
+  amount: number | null;
+  paid: number;
+  // null while the amount of the deal is unknown, negative for an overpayment
+  balance: number | null;
+  order_id: Identifier | null;
+  order_stage: ProductionStage | null;
+  order_due_date: string | null;
+} & Pick<RaRecord, "id">;
+
+export type FinanceSummary = {
+  total_count: number;
+  in_work_count: number;
+  in_work_amount: number;
+  in_work_without_amount: number;
+  paid: number;
+  remaining: number;
+  overpaid: number;
+};
