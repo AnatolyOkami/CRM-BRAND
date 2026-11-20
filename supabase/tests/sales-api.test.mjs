@@ -6,15 +6,16 @@
 //
 // They check that the rules hold when the Data API is called directly, not only through the UI.
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execSync } from "node:child_process";
 import { before, describe, it } from "node:test";
 
 const status = Object.fromEntries(
-  execFileSync("npx", ["supabase", "status", "-o", "env"], {
+  // execSync runs through the shell, so that npx also resolves on Windows (npx.cmd)
+  execSync("npx supabase status -o env", {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "ignore"],
   })
-    .split("\n")
+    .split(/\r?\n/)
     .map((line) => line.match(/^([A-Z_]+)="?(.*?)"?$/))
     .filter(Boolean)
     .map((m) => [m[1], m[2]]),

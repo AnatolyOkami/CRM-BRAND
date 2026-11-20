@@ -124,10 +124,10 @@ test-functions:
 	npm run test:unit:functions
 
 test-sales-api: ## run the sales workflow tests against the local Supabase (start it and reset the database first)
-	node --test supabase/tests/sales-api.test.mjs
+	npm run test:sales-api
 
 seed-sales-demo: ## create test accounts with working roles and sample requests on the local Supabase (empty database only)
-	node supabase/tests/seed-sales-demo.mjs
+	npm run seed:sales-demo
 
 test-e2e: start-e2e
 	npx playwright test --ui

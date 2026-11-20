@@ -11,10 +11,14 @@
 npm install
 npx supabase start
 npx supabase db reset --local          # применяет все миграции, включая новую
-make seed-sales-demo                   # аккаунты и заявки для проверки, только на пустой БД
-make test-sales-api                    # 26 интеграционных тестов через настоящий PostgREST
+npm run seed:sales-demo                # аккаунты и заявки для проверки, только на пустой БД
+npm run test:sales-api                 # 26 интеграционных тестов через настоящий PostgREST
 npm run dev                            # http://localhost:5173
 ```
+
+Команды выполняются по одной: они одинаково работают в PowerShell, cmd и bash, `make` не нужен
+(цели `make seed-sales-demo` и `make test-sales-api` — те же npm-скрипты). Сидер и тесты меняют данные:
+после тестов снова выполните `db reset`, прежде чем запускать сидер. Нужны запущенные Docker и `npx supabase start`.
 
 Аккаунты сидера (пароль у всех `Passw0rd!Passw0rd!`):
 

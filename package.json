@@ -6,6 +6,8 @@
     "test:unit:app": "vitest --config vitest.config.ts",
     "test:unit:claude": "vitest --config vitest.config.ts --project claude",
     "test:unit:functions": "vitest --config vitest.config.ts --project functions",
+    "test:sales-api": "node --test supabase/tests/sales-api.test.mjs",
+    "seed:sales-demo": "node supabase/tests/seed-sales-demo.mjs",
     "dev": "vite --force",
     "dev:demo": "vite --config vite.demo.config --force",
     "build": "tsc && vite build",
