@@ -1,5 +1,11 @@
 import type { Identifier } from "ra-core";
 
+import type {
+  OrderLink,
+  ProductionStage,
+  UploadedOrderFile,
+} from "../../types";
+
 /**
  * Error raised by the deal commands (claim, transition, assign, create).
  * `code` is the machine readable message of the database, e.g. deal_already_assigned.
@@ -29,6 +35,9 @@ export type TransitionDealParams = {
   dealId: Identifier;
   expectedVersion: number;
   toStage: string;
+  /** Only for "contract signed": the date of the signing (today by default) and an optional link. */
+  contractSignedAt?: string;
+  contractLink?: string;
   /** The card that must follow the moved one in the target column. */
   beforeDealId?: Identifier | null;
   reason?: string;
@@ -42,4 +51,31 @@ export type AssignDealParams = {
   toSalesId: Identifier | null;
   reason?: string;
   requestKey?: string;
+};
+
+export type HandoffParams = {
+  dealId: Identifier;
+  expectedVersion: number;
+  productName: string;
+  instructions?: string;
+  dueDate?: string | null;
+  files: UploadedOrderFile[];
+  links: OrderLink[];
+  requestKey?: string;
+};
+
+export type TransitionOrderParams = {
+  orderId: Identifier;
+  expectedVersion: number;
+  toStage: ProductionStage;
+  requestKey?: string;
+};
+
+/** Result of a workshop transition: notified is true when the manager got a notification. */
+export type OrderTransitionResult = {
+  order_id: Identifier;
+  version: number;
+  stage: ProductionStage;
+  notified: boolean;
+  replayed: boolean;
 };

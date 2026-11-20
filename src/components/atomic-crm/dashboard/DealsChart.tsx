@@ -16,6 +16,8 @@ const multiplier: Record<string, number> = {
   "in-work": 0.35,
   "proposal-sent": 0.5,
   "in-negociation": 0.8,
+  "contract-signed": 0.9,
+  "sent-to-production": 0.95,
   delayed: 0.3,
 };
 

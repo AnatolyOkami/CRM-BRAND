@@ -72,9 +72,38 @@ describe("getReplyStatus", () => {
 });
 
 describe("planMove", () => {
-  it("never moves to won from the board", () => {
+  it("moves to won only from production", () => {
+    expect(
+      planMove({ stage: "sent-to-production", sales_id: 1 }, "won"),
+    ).toEqual({ kind: "move" });
     expect(planMove({ stage: "in-work", sales_id: 1 }, "won")).toEqual({
-      kind: "handoff",
+      kind: "blocked",
+      reason: "won_requires_ready_order",
+    });
+  });
+
+  it("opens the handoff only from a signed contract", () => {
+    expect(
+      planMove({ stage: "contract-signed", sales_id: 1 }, "sent-to-production"),
+    ).toEqual({ kind: "ask-handoff" });
+    expect(
+      planMove({ stage: "proposal-sent", sales_id: 1 }, "sent-to-production"),
+    ).toEqual({ kind: "blocked", reason: "contract_required" });
+  });
+
+  it("asks for the signing data when a deal gets a signed contract", () => {
+    expect(
+      planMove({ stage: "in-negociation", sales_id: 1 }, "contract-signed"),
+    ).toEqual({ kind: "ask-contract" });
+  });
+
+  it("keeps a deal in production there", () => {
+    expect(
+      planMove({ stage: "sent-to-production", sales_id: 1 }, "in-work"),
+    ).toEqual({ kind: "blocked", reason: "in_production_locked" });
+    expect(planMove({ stage: "won", sales_id: 1 }, "in-work")).toEqual({
+      kind: "blocked",
+      reason: "won_is_final",
     });
   });
 
@@ -132,6 +161,10 @@ describe("describeCommandError", () => {
   it("treats races as conflicts that refresh the board", () => {
     expect(describeCommandError("deal_already_assigned").conflict).toBe(true);
     expect(describeCommandError("deal_version_conflict").conflict).toBe(true);
+  });
+
+  it("treats a race on the order as a conflict that refreshes the data", () => {
+    expect(describeCommandError("order_version_conflict").conflict).toBe(true);
   });
 
   it("maps business rules to messages", () => {

@@ -9,6 +9,7 @@ import { useConfigurationLoader } from "../root/useConfigurationLoader";
 import { useLocation } from "react-router";
 
 import Header from "./Header";
+import { NotificationDock } from "../notifications/NotificationDock";
 import { SideMenu } from "./SideMenu";
 
 export const Layout = ({ children }: { children: ReactNode }) => {
@@ -39,6 +40,7 @@ export const Layout = ({ children }: { children: ReactNode }) => {
         </div>
       </div>
       <Notification />
+      <NotificationDock />
     </DataImportProvider>
   );
 };

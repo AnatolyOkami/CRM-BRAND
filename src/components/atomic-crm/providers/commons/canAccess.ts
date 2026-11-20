@@ -26,6 +26,10 @@ const SALES_RESOURCES = new Set([
   "activity_log",
 ]);
 
+export const hasProductionRole = (roles?: WorkingRole[]) =>
+  roles == null ||
+  roles.some((role) => role === "workshop" || role === "production_head");
+
 export const hasSalesRole = (roles?: WorkingRole[]) =>
   roles == null || roles.some((role) => SALES_ROLES.includes(role));
 

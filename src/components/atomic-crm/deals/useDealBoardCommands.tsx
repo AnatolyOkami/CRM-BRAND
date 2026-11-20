@@ -7,6 +7,8 @@ import { DealCommandError } from "../providers/commons/dealCommands";
 import type { CrmDataProvider } from "../providers/types";
 import type { Deal } from "../types";
 import { describeCommandError, planMove } from "./boardUtils";
+import { ContractDialog, type ContractData } from "./ContractDialog";
+import { HandoffDialog } from "./HandoffDialog";
 import { LostReasonDialog } from "./LostReasonDialog";
 
 interface MoveOptions {
@@ -19,6 +21,8 @@ interface PendingClose {
   beforeDealId?: Identifier | null;
 }
 
+type PendingContract = PendingClose;
+
 /**
  * The only way the board changes a deal: every action is one server command, the board is reloaded
  * afterwards whatever the answer was, so that a lost race shows the real state instead of a guess.
@@ -29,6 +33,7 @@ export const useDealBoardCommands = (): {
   releaseDeal: (deal: Deal) => void;
   assignDeal: (deal: Deal, salesId: Identifier) => void;
   busy: boolean;
+  /** The dialogs of the moves that ask something first: closing, signing, handoff */
   lostDialog: ReactNode;
 } => {
   const dataProvider = useDataProvider<CrmDataProvider>();
@@ -37,12 +42,19 @@ export const useDealBoardCommands = (): {
   const queryClient = useQueryClient();
   const [busy, setBusy] = useState(false);
   const [pendingClose, setPendingClose] = useState<PendingClose | null>(null);
+  const [pendingContract, setPendingContract] =
+    useState<PendingContract | null>(null);
+  const [pendingHandoff, setPendingHandoff] = useState<Deal | null>(null);
 
   const refresh = () =>
     Promise.all(
-      ["deals", "tasks", "deal_stage_history", "contacts"].map((key) =>
-        queryClient.invalidateQueries({ queryKey: [key] }),
-      ),
+      [
+        "deals",
+        "tasks",
+        "deal_stage_history",
+        "contacts",
+        "production_orders",
+      ].map((key) => queryClient.invalidateQueries({ queryKey: [key] })),
     );
 
   const run = async (action: () => Promise<unknown>, successKey?: string) => {
@@ -82,6 +94,25 @@ export const useDealBoardCommands = (): {
       });
     }, "crm.board.moved");
 
+  const confirmContract = (
+    { deal, beforeDealId }: PendingContract,
+    data: ContractData,
+  ) =>
+    run(async () => {
+      let version = deal.version;
+      if (deal.sales_id == null) {
+        version = (await dataProvider.claimDeal(deal.id, version)).version;
+      }
+      await dataProvider.transitionDeal({
+        dealId: deal.id,
+        expectedVersion: version,
+        toStage: "contract-signed",
+        beforeDealId,
+        contractSignedAt: data.signedAt,
+        contractLink: data.link,
+      });
+    }, "crm.board.moved");
+
   const moveDeal = (deal: Deal, toStage: string, options: MoveOptions = {}) => {
     if (busy) return;
     const plan = planMove(deal, toStage, {
@@ -90,9 +121,16 @@ export const useDealBoardCommands = (): {
     switch (plan.kind) {
       case "noop":
         return;
-      case "handoff":
-        // The production handoff form belongs to the workshop stage of the project
-        notify("crm.board.handoff_unavailable", { type: "info" });
+      case "blocked":
+        notify(describeCommandError(plan.reason).messageKey, {
+          type: "warning",
+        });
+        return;
+      case "ask-handoff":
+        setPendingHandoff(deal);
+        return;
+      case "ask-contract":
+        setPendingContract({ deal, beforeDealId: options.beforeDealId });
         return;
       case "ask-reason":
         setPendingClose({ deal, beforeDealId: options.beforeDealId });
@@ -175,16 +213,32 @@ export const useDealBoardCommands = (): {
   };
 
   const lostDialog = (
-    <LostReasonDialog
-      open={pendingClose != null}
-      onCancel={() => setPendingClose(null)}
-      onConfirm={(reason) => {
-        const pending = pendingClose;
-        setPendingClose(null);
-        if (pending) void closeDeal(pending.deal, reason, pending.beforeDealId);
-      }}
-      title={translate("crm.lost_dialog.title")}
-    />
+    <>
+      <ContractDialog
+        open={pendingContract != null}
+        onCancel={() => setPendingContract(null)}
+        onConfirm={(data) => {
+          const pending = pendingContract;
+          setPendingContract(null);
+          if (pending) void confirmContract(pending, data);
+        }}
+      />
+      <HandoffDialog
+        deal={pendingHandoff}
+        onClose={() => setPendingHandoff(null)}
+      />
+      <LostReasonDialog
+        open={pendingClose != null}
+        onCancel={() => setPendingClose(null)}
+        onConfirm={(reason) => {
+          const pending = pendingClose;
+          setPendingClose(null);
+          if (pending)
+            void closeDeal(pending.deal, reason, pending.beforeDealId);
+        }}
+        title={translate("crm.lost_dialog.title")}
+      />
+    </>
   );
 
   return { moveDeal, takeDeal, releaseDeal, assignDeal, busy, lostDialog };

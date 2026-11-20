@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 
 import { useConfigurationContext } from "../root/ConfigurationContext";
-import type { Deal, Task } from "../types";
+import type { Deal, ProductionOrder, Task } from "../types";
 import { DealCard, type DealCardViewer } from "./DealCard";
 import type { useDealBoardCommands } from "./useDealBoardCommands";
 
@@ -90,6 +90,24 @@ export const DealColumn = ({
     return map;
   }, [openTasks]);
 
+  // The workshop state of the deals that have been sent to production
+  const { data: orders } = useGetList<ProductionOrder>(
+    "production_orders",
+    {
+      pagination: { page: 1, perPage: 500 },
+      sort: { field: "id", order: "ASC" },
+      filter: { "deal_id@in": `(${dealIds.join(",")})` },
+    },
+    {
+      enabled:
+        ["sent-to-production", "won"].includes(stage) && dealIds.length > 0,
+    },
+  );
+  const orderByDeal = useMemo(
+    () => new Map((orders ?? []).map((order) => [order.deal_id, order])),
+    [orders],
+  );
+
   const allLoaded = total != null && deals.length >= total;
   const totalAmount = deals.reduce((sum, deal) => sum + (deal.amount ?? 0), 0);
 
@@ -118,7 +136,7 @@ export const DealColumn = ({
           </p>
         )}
       </div>
-      <Droppable droppableId={stage} isDropDisabled={stage === "won"}>
+      <Droppable droppableId={stage}>
         {(droppableProvided, snapshot) => (
           <div
             ref={droppableProvided.innerRef}
@@ -133,6 +151,7 @@ export const DealColumn = ({
                 deal={deal}
                 index={index}
                 nextTask={nextTaskByDeal.get(deal.id)}
+                order={orderByDeal.get(deal.id)}
                 commands={commands}
                 viewer={viewer}
               />

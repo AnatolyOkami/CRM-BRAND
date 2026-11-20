@@ -34,7 +34,9 @@ export const getReplyStatus = (
 /** What has to happen on the server when a card is dropped on a stage. */
 export type MovePlan =
   | { kind: "noop" }
-  | { kind: "handoff" }
+  | { kind: "blocked"; reason: string }
+  | { kind: "ask-handoff" }
+  | { kind: "ask-contract" }
   | { kind: "ask-reason" }
   | { kind: "release" }
   | { kind: "claim" }
@@ -46,9 +48,28 @@ export const planMove = (
   toStage: string,
   options: { sameColumnReorder?: boolean } = {},
 ): MovePlan => {
-  if (toStage === "won" && deal.stage !== "won") return { kind: "handoff" };
-  if (deal.stage === toStage && !options.sameColumnReorder) {
+  const sameStage = deal.stage === toStage;
+  if (sameStage && !options.sameColumnReorder) {
     return { kind: "noop" };
+  }
+  if (!sameStage) {
+    // A deal in production only goes on to won, a won deal stays won
+    if (deal.stage === "won")
+      return { kind: "blocked", reason: "won_is_final" };
+    if (deal.stage === "sent-to-production" && toStage !== "won") {
+      return { kind: "blocked", reason: "in_production_locked" };
+    }
+    if (toStage === "sent-to-production") {
+      return deal.stage === "contract-signed"
+        ? { kind: "ask-handoff" }
+        : { kind: "blocked", reason: "contract_required" };
+    }
+    if (toStage === "won") {
+      return deal.stage === "sent-to-production"
+        ? { kind: "move" }
+        : { kind: "blocked", reason: "won_requires_ready_order" };
+    }
+    if (toStage === "contract-signed") return { kind: "ask-contract" };
   }
   if (toStage === "lost" && deal.stage !== "lost") {
     return { kind: "ask-reason" };
@@ -81,6 +102,14 @@ export const getNeighborId = <T extends { id: unknown }>(
 };
 
 const KNOWN_ERRORS = new Set([
+  "handoff_required",
+  "in_production_locked",
+  "won_requires_ready_order",
+  "contract_required",
+  "invalid_link",
+  "product_name_required",
+  "invalid_file",
+  "invalid_materials",
   "claim_required",
   "won_requires_handoff",
   "won_is_final",
@@ -102,10 +131,10 @@ export const describeCommandError = (code: string): CommandErrorView => {
   if (code === "deal_already_assigned") {
     return { conflict: true, messageKey: "crm.board.conflict_taken" };
   }
-  if (code === "deal_version_conflict") {
+  if (code === "deal_version_conflict" || code === "order_version_conflict") {
     return { conflict: true, messageKey: "crm.board.conflict_version" };
   }
-  if (code === "deal_not_found") {
+  if (code === "deal_not_found" || code === "order_not_found") {
     return { conflict: true, messageKey: "crm.board.not_found" };
   }
   if (KNOWN_ERRORS.has(code)) {

@@ -6,7 +6,8 @@
 //   head@crm.test    administrator + manager + sales head
 //   anna@crm.test    manager
 //   boris@crm.test   manager
-//   shop@crm.test    workshop: sees no sales data at all
+//   shop@crm.test    workshop: sees only the production board
+//   boss@crm.test    production head
 //   nobody@crm.test  no working role yet
 import { execSync } from "node:child_process";
 
@@ -87,6 +88,7 @@ const head = await createUser("head@crm.test", "Ирина", "Руководов
 const anna = await createUser("anna@crm.test", "Анна", "Менеджерова", true);
 const boris = await createUser("boris@crm.test", "Борис", "Продажин", true);
 const shop = await createUser("shop@crm.test", "Сергей", "Цехов", true);
+const boss = await createUser("boss@crm.test", "Павел", "Производов", true);
 await createUser("nobody@crm.test", "Новый", "Сотрудник", true);
 
 const setRoles = (who, roles) =>
@@ -97,6 +99,7 @@ const setRoles = (who, roles) =>
 await setRoles(anna, ["manager"]);
 await setRoles(boris, ["manager"]);
 await setRoles(shop, ["workshop"]);
+await setRoles(boss, ["production_head"]);
 
 const hoursAgo = (h) => new Date(Date.now() - h * 3600_000).toISOString();
 const requests = [
@@ -133,6 +136,43 @@ await call(anna.token, "POST", "/rest/v1/rpc/transition_deal", {
   p_deal_id: mine.deal_id,
   p_expected_version: mine.version,
   p_to_stage: "contacted",
+});
+
+// A deal with a signed contract: ready to be handed over to production from the board
+const signContract = async (who, name, phone) => {
+  const deal = await call(
+    who.token,
+    "POST",
+    "/rest/v1/rpc/create_manual_deal",
+    {
+      p_name: name,
+      p_new_contact: { first_name: name.split(" ")[0], phone },
+      p_source: "phone",
+      p_amount: 120000,
+    },
+  );
+  return call(who.token, "POST", "/rest/v1/rpc/transition_deal", {
+    p_deal_id: deal.deal_id,
+    p_expected_version: deal.version,
+    p_to_stage: "contract-signed",
+    p_contract_link: "https://example.com/contract.pdf",
+  });
+};
+await signContract(anna, "Вывеска для кофейни", "+7 900 300-30-01");
+
+// An order that the workshop already has, with a link to the layout
+const handed = await signContract(
+  anna,
+  "Баннер для ярмарки",
+  "+7 900 300-30-02",
+);
+await call(anna.token, "POST", "/rest/v1/rpc/handoff_deal_to_production", {
+  p_deal_id: handed.deal_id,
+  p_expected_version: handed.version,
+  p_product_name: "Баннер 2×4 с люверсами",
+  p_instructions: "Печать 720 dpi, люверсы каждые 50 см",
+  p_due_date: new Date(Date.now() + 3 * 86400_000).toISOString().slice(0, 10),
+  p_links: [{ url: "https://example.com/maket", label: "Макет в облаке" }],
 });
 
 await call(head.token, "POST", "/rest/v1/deals", {

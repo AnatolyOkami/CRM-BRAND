@@ -13,7 +13,9 @@ import type {
   DealCommandResult,
   DealNote,
   ManualDealData,
+  NotificationEvent,
   StaffRole,
+  UploadedOrderFile,
   RAFile,
   Sale,
   SalesFormData,
@@ -27,7 +29,10 @@ import {
   DealCommandError,
   newRequestKey,
   type AssignDealParams,
+  type HandoffParams,
+  type OrderTransitionResult,
   type TransitionDealParams,
+  type TransitionOrderParams,
 } from "../commons/dealCommands";
 import { config } from "../../root/config";
 import { getIsInitialized } from "./authProvider";
@@ -57,6 +62,8 @@ const processCompanyLogo = async (params: any) => {
     },
   };
 };
+
+const ORDER_FILES_BUCKET = "order-files";
 
 // Runs a deal command in the database. The database answers with HTTP 4xx and a code such as
 // deal_already_assigned, which is turned into a DealCommandError.
@@ -248,6 +255,8 @@ const getDataProviderWithCustomMethods = () => {
       toStage,
       beforeDealId,
       reason,
+      contractSignedAt,
+      contractLink,
       requestKey = newRequestKey(),
     }: TransitionDealParams) {
       return callDealCommand("transition_deal", {
@@ -257,7 +266,102 @@ const getDataProviderWithCustomMethods = () => {
         p_before_deal_id: beforeDealId ?? null,
         p_reason: reason ?? null,
         p_request_key: requestKey,
+        p_contract_signed_at: contractSignedAt ?? null,
+        p_contract_link: contractLink ?? null,
       });
+    },
+    async handoffDeal({
+      dealId,
+      expectedVersion,
+      productName,
+      instructions,
+      dueDate,
+      files,
+      links,
+      requestKey = newRequestKey(),
+    }: HandoffParams) {
+      return callDealCommand("handoff_deal_to_production", {
+        p_deal_id: dealId,
+        p_expected_version: expectedVersion,
+        p_product_name: productName,
+        p_instructions: instructions ?? null,
+        p_due_date: dueDate || null,
+        p_files: files,
+        p_links: links,
+        p_request_key: requestKey,
+      });
+    },
+    async transitionOrder({
+      orderId,
+      expectedVersion,
+      toStage,
+      requestKey = newRequestKey(),
+    }: TransitionOrderParams) {
+      const { data, error, status } = await getSupabaseClient().rpc(
+        "transition_production_order",
+        {
+          p_order_id: orderId,
+          p_expected_version: expectedVersion,
+          p_to_stage: toStage,
+          p_request_key: requestKey,
+        },
+      );
+      if (error) {
+        throw new DealCommandError(error.message, status);
+      }
+      return data as OrderTransitionResult;
+    },
+    async openNotification(id: Identifier) {
+      const { error, status } = await getSupabaseClient().rpc(
+        "open_notification",
+        { p_id: id },
+      );
+      if (error) throw new DealCommandError(error.message, status);
+    },
+    async acknowledgeNotification(id: Identifier) {
+      const { error, status } = await getSupabaseClient().rpc(
+        "acknowledge_notification",
+        { p_id: id },
+      );
+      if (error) throw new DealCommandError(error.message, status);
+    },
+    async getPendingNotifications(): Promise<NotificationEvent[]> {
+      const { data, error } = await getSupabaseClient()
+        .from("notification_events")
+        .select("*")
+        .is("acknowledged_at", null)
+        .order("id", { ascending: true });
+      if (error) throw error;
+      return data as NotificationEvent[];
+    },
+    /** Uploads a file of a deal to the private bucket; the first folder of the path is the deal id. */
+    async uploadOrderFile(
+      dealId: Identifier,
+      file: File,
+    ): Promise<UploadedOrderFile> {
+      // The object name is made of safe characters, the original name is kept next to it
+      const safeName = file.name.replace(/[^\w.-]+/g, "_");
+      const path = `${dealId}/${crypto.randomUUID()}-${safeName}`;
+      const { error } = await getSupabaseClient()
+        .storage.from(ORDER_FILES_BUCKET)
+        .upload(path, file, { contentType: file.type || undefined });
+      if (error) throw new Error(error.message);
+      return {
+        path,
+        name: file.name,
+        size: file.size,
+        type: file.type,
+      };
+    },
+    /** A short lived address of a private file, issued only to people allowed to read it. */
+    async getOrderFileUrl(path: string): Promise<string> {
+      const { data, error } = await getSupabaseClient()
+        .storage.from(ORDER_FILES_BUCKET)
+        .createSignedUrl(path, 120);
+      if (error || !data) {
+        throw new Error(error?.message ?? "File not available");
+      }
+      return data.signedUrl;
     },
     async assignDeal({
       dealId,

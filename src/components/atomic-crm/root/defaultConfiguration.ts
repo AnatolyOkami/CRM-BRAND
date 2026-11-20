@@ -38,6 +38,8 @@ export const defaultDealStages = [
   { value: "in-work", label: "В работе" },
   { value: "proposal-sent", label: "КП отправлено" },
   { value: "in-negociation", label: "Согласование и оплата" },
+  { value: "contract-signed", label: "Договор подписан" },
+  { value: "sent-to-production", label: "Отправлено на производство" },
   { value: "won", label: "Выиграна" },
   { value: "lost", label: "Закрыта без продажи" },
   { value: "delayed", label: "Отложена" },

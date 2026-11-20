@@ -29,7 +29,14 @@ import { formatCompanyDateTime, useCompanyTimeZone } from "../misc/companyTime";
 import { getDateFnsLocale } from "../misc/RelativeDate";
 import { useConfigurationContext } from "../root/ConfigurationContext";
 import { useGetSalesName } from "../sales/useGetSalesName";
-import type { Contact, Deal, StaffRoleRecord, Task } from "../types";
+import { OrderIndicators } from "../production/OrderIndicators";
+import type {
+  Contact,
+  Deal,
+  ProductionOrder,
+  StaffRoleRecord,
+  Task,
+} from "../types";
 import { getReplyStatus } from "./boardUtils";
 import { formatDealCategories } from "./dealUtils";
 import type { useDealBoardCommands } from "./useDealBoardCommands";
@@ -46,12 +53,14 @@ export const DealCard = ({
   deal,
   index,
   nextTask,
+  order,
   commands,
   viewer,
 }: {
   deal: Deal;
   index: number;
   nextTask?: Task;
+  order?: ProductionOrder;
   commands: Commands;
   viewer: DealCardViewer;
 }) => {
@@ -69,6 +78,7 @@ export const DealCard = ({
           snapshot={snapshot}
           deal={deal}
           nextTask={nextTask}
+          order={order}
           commands={commands}
           viewer={viewer}
         />
@@ -82,6 +92,7 @@ export const DealCardContent = ({
   snapshot,
   deal,
   nextTask,
+  order,
   commands,
   viewer,
 }: {
@@ -89,6 +100,7 @@ export const DealCardContent = ({
   snapshot?: any;
   deal: Deal;
   nextTask?: Task;
+  order?: ProductionOrder;
   commands?: Commands;
   viewer?: DealCardViewer;
 }) => {
@@ -210,6 +222,8 @@ export const DealCardContent = ({
                 </Button>
               )}
             </div>
+
+            {order && <OrderIndicators order={order} />}
 
             <p className="truncate text-xs text-muted-foreground">
               {nextTask

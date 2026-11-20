@@ -137,6 +137,65 @@ export type Deal = {
   version: number;
   lost_reason?: string | null;
   is_historical?: boolean;
+  contract_signed_at?: string | null;
+  contract_link?: string | null;
+} & Pick<RaRecord, "id">;
+
+export type ProductionStage = "accepted" | "in-progress" | "ready";
+
+/** An order of the workshop, one per deal. It holds no price and no contact of the customer. */
+export type ProductionOrder = {
+  deal_id: Identifier;
+  stage: ProductionStage;
+  product_name: string;
+  instructions: string | null;
+  due_date: string | null;
+  customer_name: string;
+  files_count: number;
+  links_count: number;
+  version: number;
+  ready_cycle: number;
+  ready_at: string | null;
+  ready_by: Identifier | null;
+  created_at: string;
+  updated_at: string;
+} & Pick<RaRecord, "id">;
+
+export type OrderMaterial = {
+  order_id: Identifier;
+  kind: "file" | "link";
+  label: string | null;
+  url: string | null;
+  file_path: string | null;
+  file_name: string | null;
+  file_size: number | null;
+  mime_type: string | null;
+} & Pick<RaRecord, "id">;
+
+/** A file already uploaded to the private bucket, ready to be attached to a handoff. */
+export type UploadedOrderFile = {
+  path: string;
+  name: string;
+  size: number;
+  type: string;
+};
+
+export type OrderLink = { url: string; label: string };
+
+export type NotificationEvent = {
+  recipient_sales_id: Identifier;
+  kind: "order_ready";
+  order_id: Identifier;
+  deal_id: Identifier;
+  ready_cycle: number;
+  payload: {
+    order_number: number;
+    customer_name: string;
+    product_name: string;
+  };
+  created_at: string;
+  opened_at: string | null;
+  acknowledged_at: string | null;
 } & Pick<RaRecord, "id">;
 
 export type DealSource =
@@ -164,6 +223,8 @@ export type DealStageHistory = {
 
 /** Answer of the deal commands (claim, transition, assign, create). */
 export type DealCommandResult = {
+  order_id?: Identifier;
+  order_stage?: ProductionStage;
   deal_id: Identifier;
   version: number;
   stage: string;

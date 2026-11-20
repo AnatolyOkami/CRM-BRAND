@@ -25,6 +25,7 @@ import { Separator } from "@/components/ui/separator";
 import { CompanyAvatar } from "../companies/CompanyAvatar";
 import { formatCompanyDateTime, useCompanyTimeZone } from "../misc/companyTime";
 import { getDateFnsLocale } from "../misc/RelativeDate";
+import { DealNotificationBanner } from "../notifications/DealNotificationBanner";
 import { NoteCreate } from "../notes/NoteCreate";
 import { NotesIterator } from "../notes/NotesIterator";
 import { useConfigurationContext } from "../root/ConfigurationContext";
@@ -33,6 +34,7 @@ import type { Deal } from "../types";
 import { getReplyStatus } from "./boardUtils";
 import { ContactList } from "./ContactList";
 import { DealHistory } from "./DealHistory";
+import { DealOrderBlock } from "./DealOrderBlock";
 import {
   findDealLabel,
   formatDealCategories,
@@ -75,6 +77,7 @@ const DealShowContent = () => {
   return (
     <>
       <div className="space-y-2">
+        <DealNotificationBanner dealId={record.id} />
         {record.archived_at ? <ArchivedTitle /> : null}
         <div className="flex-1">
           <div className="flex justify-between items-start mb-8">
@@ -199,12 +202,41 @@ const DealShowContent = () => {
                       : "—"
               }
             />
+            {record.contract_signed_at && (
+              <DealFact
+                label={translate("crm.order.contract")}
+                value={translate("crm.order.contract_signed_on", {
+                  date: new Date(
+                    record.contract_signed_at + "T00:00:00",
+                  ).toLocaleDateString(locale),
+                })}
+              />
+            )}
+            {record.contract_link && (
+              <div className="flex flex-col">
+                <span className="text-xs tracking-wide text-muted-foreground">
+                  {translate("crm.order.contract_link")}
+                </span>
+                <a
+                  href={record.contract_link}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="truncate text-sm text-primary underline-offset-4 hover:underline"
+                >
+                  {record.contract_link}
+                </a>
+              </div>
+            )}
             {record.lost_reason && (
               <DealFact
                 label={translate("resources.deals.fields.lost_reason")}
                 value={record.lost_reason}
               />
             )}
+          </div>
+
+          <div className="m-4 empty:hidden">
+            <DealOrderBlock dealId={record.id} />
           </div>
 
           {!!record.contact_ids?.length && (

@@ -135,6 +135,7 @@ export const buildDeal = (overrides: Partial<Deal> = {}): Deal => ({
 export const StoryWrapper = ({
   authProvider: authProviderOverrides,
   children,
+  chrome,
   data,
   dataProvider: dataProviderOverrides,
   initialEntries,
@@ -142,6 +143,8 @@ export const StoryWrapper = ({
 }: {
   authProvider?: Partial<AuthProvider>;
   children: ReactNode;
+  /** Rendered by the layout on every page, like the pinned panels of the real layout */
+  chrome?: ReactNode;
   data?: Partial<Db>;
   dataProvider?: Partial<ReturnType<typeof createDataProvider>>;
   initialEntries?: string[];
@@ -185,6 +188,7 @@ export const StoryWrapper = ({
           <DataImportProvider>
             {children}
             <Notification />
+            {chrome}
           </DataImportProvider>
         )}
       />

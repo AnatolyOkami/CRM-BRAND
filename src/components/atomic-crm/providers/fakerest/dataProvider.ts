@@ -14,7 +14,9 @@ import type {
   ContactNote,
   Deal,
   DealNote,
+  DealCommandResult,
   ManualDealData,
+  NotificationEvent,
   Sale,
   SalesFormData,
   SearchResourceName,
@@ -22,12 +24,14 @@ import type {
   SignUpData,
   Tag,
   Task,
+  UploadedOrderFile,
 } from "../../types";
 import type { ConfigurationContextValue } from "../../root/ConfigurationContext";
 import { getActivityLog } from "../commons/activity";
 import {
   DealCommandError,
   type AssignDealParams,
+  type OrderTransitionResult,
   type TransitionDealParams,
 } from "../commons/dealCommands";
 import { getCompanyAvatar } from "../commons/getCompanyAvatar";
@@ -409,6 +413,26 @@ export const createDataProvider = ({
     },
     setStaffRoles: async () => {
       // The demo has no role restrictions
+    },
+    // The production module needs the real backend: files, orders and notifications are stored there
+    handoffDeal: async (): Promise<DealCommandResult> => {
+      throw new DealCommandError("not_available_in_demo");
+    },
+    transitionOrder: async (): Promise<OrderTransitionResult> => {
+      throw new DealCommandError("not_available_in_demo");
+    },
+    openNotification: async () => {
+      throw new DealCommandError("not_available_in_demo");
+    },
+    acknowledgeNotification: async () => {
+      throw new DealCommandError("not_available_in_demo");
+    },
+    getPendingNotifications: async (): Promise<NotificationEvent[]> => [],
+    uploadOrderFile: async (): Promise<UploadedOrderFile> => {
+      throw new DealCommandError("not_available_in_demo");
+    },
+    getOrderFileUrl: async (): Promise<string> => {
+      throw new DealCommandError("not_available_in_demo");
     },
     signUp: async ({
       email,

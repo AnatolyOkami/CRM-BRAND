@@ -1,6 +1,7 @@
 import {
   Building2,
   CheckSquare,
+  Factory,
   KanbanSquare,
   Settings,
   UserCog,
@@ -10,7 +11,10 @@ import { CanAccess, useGetIdentity, useTranslate } from "ra-core";
 import type { ComponentType } from "react";
 import { Link, matchPath, useLocation } from "react-router";
 
-import { hasSalesRole } from "../providers/commons/canAccess";
+import {
+  hasProductionRole,
+  hasSalesRole,
+} from "../providers/commons/canAccess";
 import { useConfigurationContext } from "../root/ConfigurationContext";
 
 interface MenuItem {
@@ -57,6 +61,9 @@ export const SideMenu = () => {
   const location = useLocation();
   const translate = useTranslate();
   const showSales = hasSalesRole(identity?.roles);
+  // Without tracked roles (demo mode) there is no workshop
+  const showProduction =
+    identity?.roles != null && hasProductionRole(identity.roles);
 
   return (
     <aside
@@ -80,6 +87,17 @@ export const SideMenu = () => {
               active={!!matchPath(item.match, location.pathname)}
             />
           ))}
+        {showProduction && (
+          <SideMenuLink
+            item={{
+              to: "/production",
+              labelKey: "crm.menu.production",
+              icon: Factory,
+              match: "/production/*",
+            }}
+            active={!!matchPath("/production/*", location.pathname)}
+          />
+        )}
         <CanAccess resource="sales" action="list">
           <SideMenuLink
             item={{
