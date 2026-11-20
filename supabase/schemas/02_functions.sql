@@ -270,6 +270,15 @@ begin
     new.id,
     case when sales_count > 0 then FALSE else TRUE end
   );
+
+  -- The very first account bootstraps the company: it gets the sales roles.
+  -- Everybody else has no business role until an administrator assigns one.
+  if sales_count = 0 then
+    insert into public.staff_roles (sales_id, role)
+    select s.id, r.role
+    from public.sales s, (values ('manager'), ('sales_head')) as r(role)
+    where s.user_id = new.id;
+  end if;
   return new;
 end;
 $$;
@@ -485,9 +494,600 @@ CREATE OR REPLACE FUNCTION "public"."set_sales_id_default"() RETURNS "trigger"
     SET "search_path" TO 'public'
     AS $$
 BEGIN
-  IF NEW.sales_id IS NULL THEN
+  -- The deal commands set crm.keep_unassigned to create a deal without owner
+  IF NEW.sales_id IS NULL AND coalesce(current_setting('crm.keep_unassigned', true), '') <> 'on' THEN
     SELECT id INTO NEW.sales_id FROM sales WHERE user_id = auth.uid();
   END IF;
   RETURN NEW;
 END;
+$$;
+
+--
+-- Roles and deal commands (sales workflow)
+--
+-- Error contract of the commands: SQLSTATE PT<http status> (PostgREST turns it into that HTTP status)
+-- and a machine readable message such as deal_already_assigned, deal_version_conflict, claim_required.
+--
+
+CREATE OR REPLACE FUNCTION "private"."current_sales_id"() RETURNS bigint
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+  select s.id from public.sales s where s.user_id = (select auth.uid()) and not s.disabled
+$$;
+
+CREATE OR REPLACE FUNCTION "private"."has_role"("p_role" "text") RETURNS boolean
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+  select exists (
+    select 1
+    from public.staff_roles r
+    join public.sales s on s.id = r.sales_id
+    where s.user_id = (select auth.uid()) and not s.disabled and r.role = p_role
+  )
+$$;
+
+CREATE OR REPLACE FUNCTION "private"."is_sales_head"() RETURNS boolean
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+  select private.has_role('sales_head')
+$$;
+
+CREATE OR REPLACE FUNCTION "private"."is_sales_staff"() RETURNS boolean
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+  select private.has_role('manager') or private.has_role('sales_head')
+$$;
+
+-- Moment of the first reply deadline: first_response_minutes of working time after p_received
+CREATE OR REPLACE FUNCTION "private"."compute_first_response_due"("p_received" timestamp with time zone) RETURNS timestamp with time zone
+    LANGUAGE "plpgsql" STABLE
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_tz text := 'Europe/Moscow';
+  v_days smallint[] := '{1,2,3,4,5}';
+  v_start time := '09:00';
+  v_end time := '18:00';
+  v_minutes integer := 30;
+  v_local timestamp;
+  v_remaining interval;
+  v_day_start timestamp;
+  v_day_end timestamp;
+  v_available interval;
+  i integer := 0;
+begin
+  select b.timezone, b.work_days, b.work_start, b.work_end, b.first_response_minutes
+    into v_tz, v_days, v_start, v_end, v_minutes
+  from public.business_settings b
+  where b.id = 1;
+  if not found then
+    v_tz := 'Europe/Moscow'; v_days := '{1,2,3,4,5}'; v_start := '09:00'; v_end := '18:00'; v_minutes := 30;
+  end if;
+
+  v_local := p_received at time zone v_tz;
+  v_remaining := make_interval(mins => v_minutes);
+
+  while i < 60 loop
+    if extract(isodow from v_local)::smallint = any (v_days) then
+      v_day_start := date_trunc('day', v_local) + v_start;
+      v_day_end := date_trunc('day', v_local) + v_end;
+      if v_local < v_day_start then
+        v_local := v_day_start;
+      end if;
+      if v_local < v_day_end then
+        v_available := v_day_end - v_local;
+        if v_remaining <= v_available then
+          return (v_local + v_remaining) at time zone v_tz;
+        end if;
+        v_remaining := v_remaining - v_available;
+      end if;
+    end if;
+    v_local := date_trunc('day', v_local) + interval '1 day';
+    i := i + 1;
+  end loop;
+
+  return p_received + make_interval(mins => v_minutes);
+end;
+$$;
+
+-- Serializes identical request keys of one user, then returns the stored result of a finished command
+CREATE OR REPLACE FUNCTION "private"."command_replay"("p_user" "uuid", "p_key" "text", "p_command" "text") RETURNS "jsonb"
+    LANGUAGE "plpgsql"
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_row private.deal_commands%rowtype;
+begin
+  if p_key is null then
+    return null;
+  end if;
+  perform pg_advisory_xact_lock(hashtextextended(p_user::text || ':' || p_key, 0));
+  select * into v_row from private.deal_commands c where c.user_id = p_user and c.request_key = p_key;
+  if not found then
+    return null;
+  end if;
+  if v_row.command <> p_command then
+    raise exception 'request_key_reused' using errcode = 'PT409';
+  end if;
+  return v_row.result || jsonb_build_object('replayed', true);
+end;
+$$;
+
+CREATE OR REPLACE FUNCTION "private"."command_store"("p_user" "uuid", "p_key" "text", "p_command" "text", "p_deal_id" bigint, "p_result" "jsonb") RETURNS "jsonb"
+    LANGUAGE "plpgsql"
+    SET "search_path" TO ''
+    AS $$
+begin
+  if p_key is not null then
+    insert into private.deal_commands (user_id, request_key, command, deal_id, result)
+    values (p_user, p_key, p_command, p_deal_id, p_result)
+    on conflict do nothing;
+  end if;
+  return p_result;
+end;
+$$;
+
+CREATE OR REPLACE FUNCTION "private"."log_deal_event"("p_deal_id" bigint, "p_event" "text", "p_from_stage" "text", "p_to_stage" "text", "p_from_sales_id" bigint, "p_to_sales_id" bigint, "p_actor" bigint, "p_reason" "text") RETURNS "void"
+    LANGUAGE "sql"
+    SET "search_path" TO ''
+    AS $$
+  insert into public.deal_stage_history (deal_id, event, from_stage, to_stage, from_sales_id, to_sales_id, changed_by, reason)
+  values (p_deal_id, p_event, p_from_stage, p_to_stage, p_from_sales_id, p_to_sales_id, p_actor, p_reason)
+$$;
+
+-- Gives an unassigned deal to p_owner, moves it to "to-contact" and creates the first-contact task
+CREATE OR REPLACE FUNCTION "private"."apply_claim"("p_deal_id" bigint, "p_owner" bigint, "p_actor" bigint, "p_event" "text") RETURNS bigint
+    LANGUAGE "plpgsql"
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_deal public.deals%rowtype;
+  v_contact_id bigint;
+  v_task_id bigint;
+begin
+  select * into v_deal from public.deals where id = p_deal_id;
+
+  update public.deals
+    set sales_id = p_owner,
+        stage = 'to-contact',
+        updated_at = now(),
+        index = (select coalesce(max(d.index), -1) + 1 from public.deals d where d.stage = 'to-contact' and d.archived_at is null)
+    where id = p_deal_id;
+
+  perform private.log_deal_event(p_deal_id, p_event, v_deal.stage, 'to-contact', v_deal.sales_id, p_owner, p_actor, null);
+
+  v_contact_id := v_deal.contact_ids[1];
+  if v_contact_id is null then
+    return null;
+  end if;
+
+  insert into public.tasks (contact_id, deal_id, type, text, due_date, sales_id)
+  values (
+    v_contact_id,
+    p_deal_id,
+    'first-contact',
+    'Первый контакт по заявке «' || v_deal.name || '»',
+    coalesce(v_deal.first_response_due_at, now()),
+    p_owner
+  )
+  on conflict (deal_id) where type = 'first-contact' and deal_id is not null
+  do update set sales_id = excluded.sales_id where public.tasks.done_date is null
+  returning id into v_task_id;
+
+  return v_task_id;
+end;
+$$;
+
+-- Guards the system columns of deals against direct writes through the Data API.
+-- The commands run as the function owner, service_role is used by the server side intake.
+CREATE OR REPLACE FUNCTION "public"."deals_guard"() RETURNS "trigger"
+    LANGUAGE "plpgsql"
+    SET "search_path" TO ''
+    AS $$
+begin
+  if tg_op = 'UPDATE' then
+    -- The version moves only when the business content changes, never on a reorder
+    if (to_jsonb(new) - 'version' - 'index' - 'updated_at') is distinct from (to_jsonb(old) - 'version' - 'index' - 'updated_at') then
+      new.version := old.version + 1;
+    else
+      new.version := old.version;
+    end if;
+  end if;
+
+  if current_user not in ('authenticated', 'anon') then
+    return new;
+  end if;
+
+  if tg_op = 'INSERT' then
+    -- Plain inserts are reserved for the import of past deals made by the sales head
+    if not (new.is_historical and private.is_sales_head()) then
+      raise exception 'use_create_manual_deal' using errcode = 'PT403';
+    end if;
+    new.version := 1;
+    return new;
+  end if;
+
+  if new.stage is distinct from old.stage
+     or new.sales_id is distinct from old.sales_id
+     or new.index is distinct from old.index
+     or new.source is distinct from old.source
+     or new.received_at is distinct from old.received_at
+     or new.first_response_due_at is distinct from old.first_response_due_at
+     or new.first_responded_at is distinct from old.first_responded_at
+     or new.lost_reason is distinct from old.lost_reason
+     or new.is_historical is distinct from old.is_historical then
+    raise exception 'deal_system_fields_are_read_only' using errcode = 'PT403',
+      hint = 'Use claim_deal, transition_deal or assign_deal';
+  end if;
+
+  return new;
+end;
+$$;
+
+CREATE OR REPLACE FUNCTION "public"."claim_deal"("p_deal_id" bigint, "p_expected_version" integer DEFAULT NULL::integer, "p_request_key" "text" DEFAULT NULL::"text") RETURNS "jsonb"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_uid uuid := (select auth.uid());
+  v_me bigint := private.current_sales_id();
+  v_deal public.deals%rowtype;
+  v_res jsonb;
+  v_task_id bigint;
+begin
+  if v_uid is null or v_me is null then
+    raise exception 'not_authenticated' using errcode = 'PT401';
+  end if;
+  if not private.is_sales_staff() then
+    raise exception 'forbidden' using errcode = 'PT403';
+  end if;
+
+  v_res := private.command_replay(v_uid, p_request_key, 'claim_deal');
+  if v_res is not null then
+    return v_res;
+  end if;
+
+  select * into v_deal from public.deals where id = p_deal_id for update;
+  if not found or v_deal.archived_at is not null then
+    raise exception 'deal_not_found' using errcode = 'PT404';
+  end if;
+
+  if v_deal.sales_id = v_me then
+    -- the same person pressed the button twice: the answer is the same
+    select t.id into v_task_id from public.tasks t where t.deal_id = p_deal_id and t.type = 'first-contact';
+    return private.command_store(v_uid, p_request_key, 'claim_deal', p_deal_id, jsonb_build_object(
+      'deal_id', v_deal.id, 'version', v_deal.version, 'stage', v_deal.stage, 'sales_id', v_deal.sales_id,
+      'task_id', v_task_id, 'replayed', true));
+  end if;
+  if v_deal.sales_id is not null then
+    raise exception 'deal_already_assigned' using errcode = 'PT409', hint = 'Another manager took this deal first';
+  end if;
+  if p_expected_version is not null and v_deal.version <> p_expected_version then
+    raise exception 'deal_version_conflict' using errcode = 'PT409';
+  end if;
+  if v_deal.stage <> 'opportunity' then
+    raise exception 'deal_not_claimable' using errcode = 'PT422';
+  end if;
+
+  v_task_id := private.apply_claim(p_deal_id, v_me, v_me, 'claimed');
+
+  select * into v_deal from public.deals where id = p_deal_id;
+  return private.command_store(v_uid, p_request_key, 'claim_deal', p_deal_id, jsonb_build_object(
+    'deal_id', v_deal.id, 'version', v_deal.version, 'stage', v_deal.stage, 'sales_id', v_deal.sales_id,
+    'task_id', v_task_id, 'replayed', false));
+end;
+$$;
+
+CREATE OR REPLACE FUNCTION "public"."transition_deal"("p_deal_id" bigint, "p_expected_version" integer, "p_to_stage" "text", "p_before_deal_id" bigint DEFAULT NULL::bigint, "p_reason" "text" DEFAULT NULL::"text", "p_request_key" "text" DEFAULT NULL::"text") RETURNS "jsonb"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_uid uuid := (select auth.uid());
+  v_me bigint := private.current_sales_id();
+  v_head boolean;
+  v_deal public.deals%rowtype;
+  v_res jsonb;
+  v_ids bigint[];
+  v_new_ids bigint[];
+  v_pos integer;
+  v_reason text := nullif(btrim(coalesce(p_reason, '')), '');
+begin
+  if v_uid is null or v_me is null then
+    raise exception 'not_authenticated' using errcode = 'PT401';
+  end if;
+  if not private.is_sales_staff() then
+    raise exception 'forbidden' using errcode = 'PT403';
+  end if;
+  v_head := private.is_sales_head();
+
+  if p_to_stage is null or p_to_stage not in ('opportunity', 'to-contact', 'contacted', 'in-work', 'proposal-sent', 'in-negociation', 'won', 'lost', 'delayed') then
+    raise exception 'invalid_stage' using errcode = 'PT422';
+  end if;
+
+  v_res := private.command_replay(v_uid, p_request_key, 'transition_deal');
+  if v_res is not null then
+    return v_res;
+  end if;
+
+  select * into v_deal from public.deals where id = p_deal_id for update;
+  if not found or v_deal.archived_at is not null then
+    raise exception 'deal_not_found' using errcode = 'PT404';
+  end if;
+  if not v_head and v_deal.sales_id is not null and v_deal.sales_id <> v_me then
+    raise exception 'not_your_deal' using errcode = 'PT403';
+  end if;
+  if p_expected_version is null or v_deal.version <> p_expected_version then
+    raise exception 'deal_version_conflict' using errcode = 'PT409';
+  end if;
+
+  if p_to_stage = 'won' and v_deal.stage <> 'won' then
+    raise exception 'won_requires_handoff' using errcode = 'PT422',
+      hint = 'A deal becomes won only through handoff_deal_to_production';
+  end if;
+  if v_deal.stage = 'won' and p_to_stage <> 'won' then
+    raise exception 'won_is_final' using errcode = 'PT422';
+  end if;
+  if v_deal.stage = 'lost' and p_to_stage <> 'lost' and not v_head then
+    raise exception 'only_head_reopens_lost' using errcode = 'PT403';
+  end if;
+  if p_to_stage = 'lost' and v_deal.stage <> 'lost' and v_reason is null then
+    raise exception 'reason_required' using errcode = 'PT422';
+  end if;
+  if v_deal.sales_id is null and p_to_stage <> 'opportunity' then
+    raise exception 'claim_required' using errcode = 'PT422', hint = 'Take the deal with claim_deal first';
+  end if;
+  if v_deal.sales_id is not null and p_to_stage = 'opportunity' then
+    raise exception 'use_release' using errcode = 'PT422', hint = 'Return the deal to the queue with assign_deal';
+  end if;
+
+  -- one move at a time per column keeps the order consistent
+  perform pg_advisory_xact_lock(hashtextextended('deal_stage:' || p_to_stage, 0));
+
+  update public.deals
+    set stage = p_to_stage,
+        updated_at = now(),
+        lost_reason = case
+          when p_to_stage = 'lost' and v_deal.stage <> 'lost' then v_reason
+          when v_deal.stage = 'lost' and p_to_stage <> 'lost' then null
+          else lost_reason end,
+        first_responded_at = case
+          when p_to_stage = 'contacted' and first_responded_at is null then now()
+          else first_responded_at end
+    where id = p_deal_id;
+
+  select coalesce(array_agg(d.id order by d.index nulls last, d.id), '{}'::bigint[]) into v_ids
+  from public.deals d
+  where d.stage = p_to_stage and d.archived_at is null and d.id <> p_deal_id;
+
+  v_pos := case when p_before_deal_id is null then null else array_position(v_ids, p_before_deal_id) end;
+  if v_pos is null then
+    v_new_ids := v_ids || p_deal_id;
+  else
+    v_new_ids := v_ids[1:v_pos - 1] || p_deal_id || v_ids[v_pos:array_length(v_ids, 1)];
+  end if;
+
+  update public.deals d
+    set index = o.ord - 1
+    from unnest(v_new_ids) with ordinality as o(id, ord)
+    where d.id = o.id and d.index is distinct from (o.ord - 1)::smallint;
+
+  if v_deal.stage <> p_to_stage then
+    perform private.log_deal_event(p_deal_id, 'stage', v_deal.stage, p_to_stage, v_deal.sales_id, v_deal.sales_id, v_me, v_reason);
+  end if;
+
+  select * into v_deal from public.deals where id = p_deal_id;
+  return private.command_store(v_uid, p_request_key, 'transition_deal', p_deal_id, jsonb_build_object(
+    'deal_id', v_deal.id, 'version', v_deal.version, 'stage', v_deal.stage, 'index', v_deal.index,
+    'sales_id', v_deal.sales_id, 'replayed', false));
+end;
+$$;
+
+CREATE OR REPLACE FUNCTION "public"."assign_deal"("p_deal_id" bigint, "p_expected_version" integer, "p_to_sales_id" bigint, "p_reason" "text" DEFAULT NULL::"text", "p_request_key" "text" DEFAULT NULL::"text") RETURNS "jsonb"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_uid uuid := (select auth.uid());
+  v_me bigint := private.current_sales_id();
+  v_head boolean;
+  v_deal public.deals%rowtype;
+  v_res jsonb;
+  v_task_id bigint;
+  v_reason text := nullif(btrim(coalesce(p_reason, '')), '');
+begin
+  if v_uid is null or v_me is null then
+    raise exception 'not_authenticated' using errcode = 'PT401';
+  end if;
+  if not private.is_sales_staff() then
+    raise exception 'forbidden' using errcode = 'PT403';
+  end if;
+  v_head := private.is_sales_head();
+
+  v_res := private.command_replay(v_uid, p_request_key, 'assign_deal');
+  if v_res is not null then
+    return v_res;
+  end if;
+
+  select * into v_deal from public.deals where id = p_deal_id for update;
+  if not found or v_deal.archived_at is not null then
+    raise exception 'deal_not_found' using errcode = 'PT404';
+  end if;
+  if p_expected_version is null or v_deal.version <> p_expected_version then
+    raise exception 'deal_version_conflict' using errcode = 'PT409';
+  end if;
+  if v_deal.stage in ('won', 'lost') then
+    raise exception 'deal_closed' using errcode = 'PT422';
+  end if;
+
+  if p_to_sales_id is null then
+    -- return to the shared queue: the owner or the sales head, only before real work started
+    if not v_head and v_deal.sales_id is distinct from v_me then
+      raise exception 'not_your_deal' using errcode = 'PT403';
+    end if;
+    if v_deal.stage not in ('opportunity', 'to-contact') then
+      raise exception 'release_not_allowed_in_stage' using errcode = 'PT422';
+    end if;
+    delete from public.tasks t where t.deal_id = p_deal_id and t.type = 'first-contact' and t.done_date is null;
+    update public.deals set sales_id = null, stage = 'opportunity', updated_at = now() where id = p_deal_id;
+    perform private.log_deal_event(p_deal_id, 'released', v_deal.stage, 'opportunity', v_deal.sales_id, null, v_me, v_reason);
+  else
+    if not v_head then
+      raise exception 'forbidden' using errcode = 'PT403';
+    end if;
+    if not exists (
+      select 1 from public.sales s join public.staff_roles r on r.sales_id = s.id
+      where s.id = p_to_sales_id and not s.disabled and r.role in ('manager', 'sales_head')
+    ) then
+      raise exception 'invalid_assignee' using errcode = 'PT422';
+    end if;
+    if v_deal.stage = 'opportunity' then
+      v_task_id := private.apply_claim(p_deal_id, p_to_sales_id, v_me, 'assigned');
+    else
+      update public.deals set sales_id = p_to_sales_id, updated_at = now() where id = p_deal_id;
+      update public.tasks t set sales_id = p_to_sales_id
+        where t.deal_id = p_deal_id and t.type = 'first-contact' and t.done_date is null;
+      perform private.log_deal_event(p_deal_id, 'assigned', v_deal.stage, v_deal.stage, v_deal.sales_id, p_to_sales_id, v_me, v_reason);
+    end if;
+  end if;
+
+  select * into v_deal from public.deals where id = p_deal_id;
+  return private.command_store(v_uid, p_request_key, 'assign_deal', p_deal_id, jsonb_build_object(
+    'deal_id', v_deal.id, 'version', v_deal.version, 'stage', v_deal.stage, 'sales_id', v_deal.sales_id,
+    'task_id', v_task_id, 'replayed', false));
+end;
+$$;
+
+CREATE OR REPLACE FUNCTION "public"."create_manual_deal"("p_name" "text", "p_contact_id" bigint DEFAULT NULL::bigint, "p_new_contact" "jsonb" DEFAULT NULL::"jsonb", "p_company_id" bigint DEFAULT NULL::bigint, "p_description" "text" DEFAULT NULL::"text", "p_source" "text" DEFAULT 'manual'::"text", "p_received_at" timestamp with time zone DEFAULT NULL::timestamp with time zone, "p_categories" "text"[] DEFAULT NULL::"text"[], "p_amount" bigint DEFAULT NULL::bigint, "p_assign_to_me" boolean DEFAULT true, "p_request_key" "text" DEFAULT NULL::"text") RETURNS "jsonb"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_uid uuid := (select auth.uid());
+  v_me bigint := private.current_sales_id();
+  v_res jsonb;
+  v_contact_id bigint := p_contact_id;
+  v_received timestamptz := coalesce(p_received_at, now());
+  v_deal_id bigint;
+  v_task_id bigint;
+  v_first text;
+  v_last text;
+  v_email text;
+  v_phone text;
+  v_name text := nullif(btrim(coalesce(p_name, '')), '');
+  v_version integer;
+  v_stage text;
+  v_owner bigint;
+begin
+  if v_uid is null or v_me is null then
+    raise exception 'not_authenticated' using errcode = 'PT401';
+  end if;
+  if not private.is_sales_staff() then
+    raise exception 'forbidden' using errcode = 'PT403';
+  end if;
+
+  v_res := private.command_replay(v_uid, p_request_key, 'create_manual_deal');
+  if v_res is not null then
+    return v_res;
+  end if;
+
+  if p_source is null or p_source not in ('website', 'avito', 'telegram', 'whatsapp', 'phone', 'manual', 'other') then
+    raise exception 'invalid_source' using errcode = 'PT422';
+  end if;
+  if v_received > now() + interval '5 minutes' then
+    raise exception 'received_at_in_future' using errcode = 'PT422';
+  end if;
+  if v_name is null then
+    raise exception 'name_required' using errcode = 'PT422';
+  end if;
+
+  if v_contact_id is not null then
+    if not exists (select 1 from public.contacts c where c.id = v_contact_id) then
+      raise exception 'contact_not_found' using errcode = 'PT404';
+    end if;
+  elsif p_new_contact is not null then
+    v_first := nullif(btrim(coalesce(p_new_contact ->> 'first_name', '')), '');
+    v_last := nullif(btrim(coalesce(p_new_contact ->> 'last_name', '')), '');
+    v_email := nullif(btrim(coalesce(p_new_contact ->> 'email', '')), '');
+    v_phone := nullif(btrim(coalesce(p_new_contact ->> 'phone', '')), '');
+    if v_first is null and v_last is null and v_email is null and v_phone is null then
+      raise exception 'contact_required' using errcode = 'PT422';
+    end if;
+    -- A customer without a name gets a technical label instead of an invented one
+    insert into public.contacts (first_name, last_name, email_jsonb, phone_jsonb, company_id, sales_id, first_seen, last_seen, status)
+    values (
+      coalesce(v_first, case when v_last is null then 'Клиент' end),
+      v_last,
+      case when v_email is null then '[]'::jsonb else jsonb_build_array(jsonb_build_object('email', v_email, 'type', 'Work')) end,
+      case when v_phone is null then '[]'::jsonb else jsonb_build_array(jsonb_build_object('number', v_phone, 'type', 'Work')) end,
+      p_company_id,
+      v_me,
+      now(),
+      now(),
+      'cold'
+    )
+    returning id into v_contact_id;
+  else
+    raise exception 'contact_required' using errcode = 'PT422';
+  end if;
+
+  perform set_config('crm.keep_unassigned', 'on', true);
+  insert into public.deals (name, company_id, contact_ids, categories, stage, description, amount, source, received_at, first_response_due_at, sales_id, index)
+  values (
+    v_name,
+    p_company_id,
+    array[v_contact_id],
+    p_categories,
+    'opportunity',
+    nullif(btrim(coalesce(p_description, '')), ''),
+    p_amount,
+    p_source,
+    v_received,
+    private.compute_first_response_due(v_received),
+    null,
+    (select coalesce(max(d.index), -1) + 1 from public.deals d where d.stage = 'opportunity' and d.archived_at is null)
+  )
+  returning id into v_deal_id;
+  perform set_config('crm.keep_unassigned', 'off', true);
+
+  perform private.log_deal_event(v_deal_id, 'created', null, 'opportunity', null, null, v_me, null);
+
+  if coalesce(p_assign_to_me, true) then
+    v_task_id := private.apply_claim(v_deal_id, v_me, v_me, 'claimed');
+  end if;
+
+  select d.version, d.stage, d.sales_id into v_version, v_stage, v_owner from public.deals d where d.id = v_deal_id;
+  return private.command_store(v_uid, p_request_key, 'create_manual_deal', v_deal_id, jsonb_build_object(
+    'deal_id', v_deal_id, 'contact_id', v_contact_id, 'version', v_version, 'stage', v_stage,
+    'sales_id', v_owner, 'task_id', v_task_id, 'replayed', false));
+end;
+$$;
+
+CREATE OR REPLACE FUNCTION "public"."set_staff_roles"("p_sales_id" bigint, "p_roles" "text"[]) RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+begin
+  if not public.is_admin() then
+    raise exception 'forbidden' using errcode = 'PT403';
+  end if;
+  if not exists (select 1 from public.sales s where s.id = p_sales_id) then
+    raise exception 'sales_not_found' using errcode = 'PT404';
+  end if;
+  if exists (
+    select 1 from unnest(coalesce(p_roles, '{}'::text[])) r
+    where r not in ('manager', 'sales_head', 'production_head', 'workshop', 'fulfillment')
+  ) then
+    raise exception 'invalid_role' using errcode = 'PT422';
+  end if;
+
+  delete from public.staff_roles where sales_id = p_sales_id and role <> all (coalesce(p_roles, '{}'::text[]));
+  insert into public.staff_roles (sales_id, role)
+  select p_sales_id, r from unnest(coalesce(p_roles, '{}'::text[])) r
+  on conflict do nothing;
+end;
 $$;

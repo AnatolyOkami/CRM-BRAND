@@ -170,5 +170,7 @@ verify_jwt = false
 verify_jwt = false
 [functions.users]
 verify_jwt = false
+# Not used by this company: the MCP access channel is disabled
 [functions.mcp]
+enabled = false
 verify_jwt = false

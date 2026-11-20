@@ -165,3 +165,59 @@ grant all on sequence public.tasks_id_seq to service_role;
 
 -- No default privileges: every new table, view, sequence or function must
 -- declare its grants explicitly in the migration that creates it.
+
+--
+-- Roles and deal commands
+--
+
+-- The private schema is not exposed by the Data API; policies need to call the role helpers
+grant usage on schema private to authenticated;
+grant usage on schema private to service_role;
+
+revoke all on function private.current_sales_id() from public, anon;
+revoke all on function private.has_role(text) from public, anon;
+revoke all on function private.is_sales_head() from public, anon;
+revoke all on function private.is_sales_staff() from public, anon;
+grant execute on function private.current_sales_id() to authenticated, service_role;
+grant execute on function private.has_role(text) to authenticated, service_role;
+grant execute on function private.is_sales_head() to authenticated, service_role;
+grant execute on function private.is_sales_staff() to authenticated, service_role;
+
+-- Internals of the commands: only the function owner calls them
+revoke all on function private.compute_first_response_due(timestamp with time zone) from public, anon, authenticated;
+revoke all on function private.command_replay(uuid, text, text) from public, anon, authenticated;
+revoke all on function private.command_store(uuid, text, text, bigint, jsonb) from public, anon, authenticated;
+revoke all on function private.log_deal_event(bigint, text, text, text, bigint, bigint, bigint, text) from public, anon, authenticated;
+revoke all on function private.apply_claim(bigint, bigint, bigint, text) from public, anon, authenticated;
+grant execute on function private.compute_first_response_due(timestamp with time zone) to service_role;
+
+revoke all on function public.deals_guard() from public, anon, authenticated;
+
+-- Commands callable by a signed-in person: every one of them checks auth.uid() and the working role
+revoke all on function public.claim_deal(bigint, integer, text) from public, anon;
+revoke all on function public.transition_deal(bigint, integer, text, bigint, text, text) from public, anon;
+revoke all on function public.assign_deal(bigint, integer, bigint, text, text) from public, anon;
+revoke all on function public.create_manual_deal(text, bigint, jsonb, bigint, text, text, timestamp with time zone, text[], bigint, boolean, text) from public, anon;
+revoke all on function public.set_staff_roles(bigint, text[]) from public, anon;
+grant execute on function public.claim_deal(bigint, integer, text) to authenticated, service_role;
+grant execute on function public.transition_deal(bigint, integer, text, bigint, text, text) to authenticated, service_role;
+grant execute on function public.assign_deal(bigint, integer, bigint, text, text) to authenticated, service_role;
+grant execute on function public.create_manual_deal(text, bigint, jsonb, bigint, text, text, timestamp with time zone, text[], bigint, boolean, text) to authenticated, service_role;
+grant execute on function public.set_staff_roles(bigint, text[]) to authenticated, service_role;
+
+-- Tables
+revoke all on table public.staff_roles from anon, authenticated;
+grant select on table public.staff_roles to authenticated;
+grant all on table public.staff_roles to service_role;
+
+revoke all on table public.business_settings from anon, authenticated;
+grant select, insert, update on table public.business_settings to authenticated;
+grant all on table public.business_settings to service_role;
+
+revoke all on table public.deal_stage_history from anon, authenticated;
+grant select on table public.deal_stage_history to authenticated;
+grant all on table public.deal_stage_history to service_role;
+grant all on sequence public.deal_stage_history_id_seq to service_role;
+
+revoke all on table private.deal_commands from public, anon, authenticated;
+grant all on table private.deal_commands to service_role;

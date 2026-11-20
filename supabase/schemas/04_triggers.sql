@@ -83,3 +83,8 @@ create or replace trigger on_auth_user_created
 create or replace trigger on_auth_user_updated
     after update on auth.users
     for each row execute function public.handle_update_user();
+
+-- Deals: protect system columns, keep the optimistic version (runs before set_deal_sales_id_trigger)
+create or replace trigger "00_deals_guard"
+    before insert or update on public.deals
+    for each row execute function public.deals_guard();
