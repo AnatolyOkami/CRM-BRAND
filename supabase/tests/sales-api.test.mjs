@@ -6,157 +6,21 @@
 //
 // They check that the rules hold when the Data API is called directly, not only through the UI.
 import assert from "node:assert/strict";
-import { execSync } from "node:child_process";
 import { before, describe, it } from "node:test";
 
-const status = Object.fromEntries(
-  // execSync runs through the shell, so that npx also resolves on Windows (npx.cmd)
-  execSync("npx supabase status -o env", {
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "ignore"],
-  })
-    .split(/\r?\n/)
-    .map((line) => line.match(/^([A-Z_]+)="?(.*?)"?$/))
-    .filter(Boolean)
-    .map((m) => [m[1], m[2]]),
-);
-const API = status.API_URL;
-const PUB = status.PUBLISHABLE_KEY;
-const SECRET = status.SECRET_KEY;
-const PASSWORD = "Passw0rd!Passw0rd!";
-const RUN = Date.now().toString(36);
+import {
+  RUN,
+  SECRET,
+  firstContactTasks,
+  getDeal,
+  newQueueDeal,
+  rest,
+  rpc,
+  setupUsers,
+  users,
+} from "./helpers.mjs";
 
-const rest = async (token, method, path, body, extraHeaders = {}) => {
-  const res = await fetch(`${API}${path}`, {
-    method,
-    headers: {
-      apikey: token === SECRET ? SECRET : PUB,
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-      Prefer: "return=representation",
-      ...extraHeaders,
-    },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  const text = await res.text();
-  let json;
-  try {
-    json = text ? JSON.parse(text) : null;
-  } catch {
-    json = text;
-  }
-  return { status: res.status, body: json };
-};
-
-const rpc = (token, name, args) =>
-  rest(token, "POST", `/rest/v1/rpc/${name}`, args);
-
-const users = {};
-
-const createUser = async (key) => {
-  const email = `${key}.${RUN}@test.local`;
-  const id = crypto.randomUUID();
-  // everybody except the very first account has to be invited
-  await rest(SECRET, "POST", "/rest/v1/user_invitations", { user_id: id });
-  const created = await fetch(`${API}/auth/v1/admin/users`, {
-    method: "POST",
-    headers: {
-      apikey: SECRET,
-      Authorization: `Bearer ${SECRET}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      id,
-      email,
-      password: PASSWORD,
-      email_confirm: true,
-      user_metadata: { first_name: key, last_name: "Test" },
-    }),
-  });
-  assert.equal(created.status, 200, `create ${key}: ${await created.text()}`);
-  const login = await fetch(`${API}/auth/v1/token?grant_type=password`, {
-    method: "POST",
-    headers: { apikey: PUB, "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password: PASSWORD }),
-  });
-  const { access_token } = await login.json();
-  const sales = await rest(SECRET, "GET", `/rest/v1/sales?user_id=eq.${id}`);
-  users[key] = { id, email, token: access_token, salesId: sales.body[0].id };
-  return users[key];
-};
-
-const setRoles = (key, roles) =>
-  rpc(users.admin.token, "set_staff_roles", {
-    p_sales_id: users[key].salesId,
-    p_roles: roles,
-  });
-
-// An unassigned deal, created by the sales head without taking it
-const newQueueDeal = async (name, extra = {}) => {
-  const res = await rpc(users.admin.token, "create_manual_deal", {
-    p_name: name,
-    p_new_contact: { first_name: name, phone: "+7 900 000-00-00" },
-    p_assign_to_me: false,
-    ...extra,
-  });
-  assert.equal(res.status, 200, JSON.stringify(res.body));
-  return res.body;
-};
-
-const getDeal = async (id) =>
-  (await rest(SECRET, "GET", `/rest/v1/deals?id=eq.${id}`)).body[0];
-
-const firstContactTasks = async (dealId) =>
-  (
-    await rest(
-      SECRET,
-      "GET",
-      `/rest/v1/tasks?deal_id=eq.${dealId}&type=eq.first-contact`,
-    )
-  ).body;
-
-before(async () => {
-  const empty = await rest(SECRET, "GET", "/rest/v1/sales?select=id&limit=1");
-  assert.deepEqual(
-    empty.body,
-    [],
-    "Run `npx supabase db reset --local` first: the first account must become the administrator",
-  );
-  // The first account is the administrator and gets the sales roles by itself
-  const email = `admin.${RUN}@test.local`;
-  const created = await fetch(`${API}/auth/v1/admin/users`, {
-    method: "POST",
-    headers: {
-      apikey: SECRET,
-      Authorization: `Bearer ${SECRET}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      email,
-      password: PASSWORD,
-      email_confirm: true,
-      user_metadata: { first_name: "admin", last_name: "Test" },
-    }),
-  });
-  assert.equal(created.status, 200);
-  const { id } = await created.json();
-  const login = await fetch(`${API}/auth/v1/token?grant_type=password`, {
-    method: "POST",
-    headers: { apikey: PUB, "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password: PASSWORD }),
-  });
-  const { access_token } = await login.json();
-  const sales = await rest(SECRET, "GET", `/rest/v1/sales?user_id=eq.${id}`);
-  users.admin = { id, email, token: access_token, salesId: sales.body[0].id };
-
-  await createUser("m1");
-  await createUser("m2");
-  await createUser("shop");
-  await createUser("nobody");
-  assert.equal((await setRoles("m1", ["manager"])).status, 204);
-  assert.equal((await setRoles("m2", ["manager"])).status, 204);
-  assert.equal((await setRoles("shop", ["workshop"])).status, 204);
-});
+before(setupUsers);
 
 describe("roles", () => {
   it("the first account is the administrator and leads sales", async () => {
@@ -569,7 +433,7 @@ describe("transition_deal", () => {
     assert.equal(history.body.length, 1);
   });
 
-  it("never sets won without a production handoff", async () => {
+  it("never sets won before the production order is ready", async () => {
     const deal = await ownDeal("no won");
     for (const key of ["m1", "admin"]) {
       const res = await rpc(users[key].token, "transition_deal", {
@@ -578,7 +442,7 @@ describe("transition_deal", () => {
         p_to_stage: "won",
       });
       assert.equal(res.status, 422, key);
-      assert.match(JSON.stringify(res.body), /won_requires_handoff/);
+      assert.match(JSON.stringify(res.body), /won_requires_ready_order/);
     }
   });
 

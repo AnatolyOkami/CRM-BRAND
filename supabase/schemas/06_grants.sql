@@ -195,12 +195,12 @@ revoke all on function public.deals_guard() from public, anon, authenticated;
 
 -- Commands callable by a signed-in person: every one of them checks auth.uid() and the working role
 revoke all on function public.claim_deal(bigint, integer, text) from public, anon;
-revoke all on function public.transition_deal(bigint, integer, text, bigint, text, text) from public, anon;
+revoke all on function public.transition_deal(bigint, integer, text, bigint, text, text, date, text) from public, anon;
 revoke all on function public.assign_deal(bigint, integer, bigint, text, text) from public, anon;
 revoke all on function public.create_manual_deal(text, bigint, jsonb, bigint, text, text, timestamp with time zone, text[], bigint, boolean, text) from public, anon;
 revoke all on function public.set_staff_roles(bigint, text[]) from public, anon;
 grant execute on function public.claim_deal(bigint, integer, text) to authenticated, service_role;
-grant execute on function public.transition_deal(bigint, integer, text, bigint, text, text) to authenticated, service_role;
+grant execute on function public.transition_deal(bigint, integer, text, bigint, text, text, date, text) to authenticated, service_role;
 grant execute on function public.assign_deal(bigint, integer, bigint, text, text) to authenticated, service_role;
 grant execute on function public.create_manual_deal(text, bigint, jsonb, bigint, text, text, timestamp with time zone, text[], bigint, boolean, text) to authenticated, service_role;
 grant execute on function public.set_staff_roles(bigint, text[]) to authenticated, service_role;
@@ -222,3 +222,38 @@ grant all on sequence public.deal_stage_history_id_seq to service_role;
 
 revoke all on table private.deal_commands from public, anon, authenticated;
 grant all on table private.deal_commands to service_role;
+
+--
+-- Production handoff, workshop board and notifications
+--
+
+revoke all on function private.is_production_staff() from public, anon;
+grant execute on function private.is_production_staff() to authenticated, service_role;
+revoke all on function private.order_file_deal_id(text) from public, anon;
+grant execute on function private.order_file_deal_id(text) to authenticated, service_role;
+
+revoke all on function public.handoff_deal_to_production(bigint, integer, text, text, date, jsonb, jsonb, text) from public, anon;
+revoke all on function public.transition_production_order(bigint, integer, text, text) from public, anon;
+revoke all on function public.open_notification(bigint) from public, anon;
+revoke all on function public.acknowledge_notification(bigint) from public, anon;
+grant execute on function public.handoff_deal_to_production(bigint, integer, text, text, date, jsonb, jsonb, text) to authenticated, service_role;
+grant execute on function public.transition_production_order(bigint, integer, text, text) to authenticated, service_role;
+grant execute on function public.open_notification(bigint) to authenticated, service_role;
+grant execute on function public.acknowledge_notification(bigint) to authenticated, service_role;
+
+revoke all on table public.production_orders from anon, authenticated;
+grant select on table public.production_orders to authenticated;
+grant all on table public.production_orders to service_role;
+revoke all on table public.production_order_materials from anon, authenticated;
+grant select on table public.production_order_materials to authenticated;
+grant all on table public.production_order_materials to service_role;
+revoke all on table public.order_stage_history from anon, authenticated;
+grant select on table public.order_stage_history to authenticated;
+grant all on table public.order_stage_history to service_role;
+revoke all on table public.notification_events from anon, authenticated;
+grant select on table public.notification_events to authenticated;
+grant all on table public.notification_events to service_role;
+grant all on sequence public.production_orders_id_seq to service_role;
+grant all on sequence public.production_order_materials_id_seq to service_role;
+grant all on sequence public.order_stage_history_id_seq to service_role;
+grant all on sequence public.notification_events_id_seq to service_role;

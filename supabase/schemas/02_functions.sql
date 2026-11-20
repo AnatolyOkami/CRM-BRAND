@@ -782,7 +782,7 @@ begin
 end;
 $$;
 
-CREATE OR REPLACE FUNCTION "public"."transition_deal"("p_deal_id" bigint, "p_expected_version" integer, "p_to_stage" "text", "p_before_deal_id" bigint DEFAULT NULL::bigint, "p_reason" "text" DEFAULT NULL::"text", "p_request_key" "text" DEFAULT NULL::"text") RETURNS "jsonb"
+CREATE OR REPLACE FUNCTION "public"."transition_deal"("p_deal_id" bigint, "p_expected_version" integer, "p_to_stage" "text", "p_before_deal_id" bigint DEFAULT NULL::bigint, "p_reason" "text" DEFAULT NULL::"text", "p_request_key" "text" DEFAULT NULL::"text", "p_contract_signed_at" "date" DEFAULT NULL::"date", "p_contract_link" "text" DEFAULT NULL::"text") RETURNS "jsonb"
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO ''
     AS $$
@@ -796,6 +796,9 @@ declare
   v_new_ids bigint[];
   v_pos integer;
   v_reason text := nullif(btrim(coalesce(p_reason, '')), '');
+  v_link text := nullif(btrim(coalesce(p_contract_link, '')), '');
+  v_order_stage text;
+  v_set_contract boolean;
 begin
   if v_uid is null or v_me is null then
     raise exception 'not_authenticated' using errcode = 'PT401';
@@ -805,7 +808,7 @@ begin
   end if;
   v_head := private.is_sales_head();
 
-  if p_to_stage is null or p_to_stage not in ('opportunity', 'to-contact', 'contacted', 'in-work', 'proposal-sent', 'in-negociation', 'won', 'lost', 'delayed') then
+  if p_to_stage is null or p_to_stage not in ('opportunity', 'to-contact', 'contacted', 'in-work', 'proposal-sent', 'in-negociation', 'contract-signed', 'sent-to-production', 'won', 'lost', 'delayed') then
     raise exception 'invalid_stage' using errcode = 'PT422';
   end if;
 
@@ -825,9 +828,24 @@ begin
     raise exception 'deal_version_conflict' using errcode = 'PT409';
   end if;
 
+  if v_link is not null and v_link !~ '^https?://[^[:space:]]+$' then
+    raise exception 'invalid_link' using errcode = 'PT422';
+  end if;
+  -- The handoff has its own command: it creates the order, keeps the materials and moves the deal
+  if p_to_stage = 'sent-to-production' and v_deal.stage <> 'sent-to-production' then
+    raise exception 'handoff_required' using errcode = 'PT422',
+      hint = 'A deal is sent to production only through handoff_deal_to_production';
+  end if;
+  if v_deal.stage = 'sent-to-production' and p_to_stage not in ('sent-to-production', 'won') then
+    raise exception 'in_production_locked' using errcode = 'PT422';
+  end if;
+  -- A deal is won when the workshop has finished its order
   if p_to_stage = 'won' and v_deal.stage <> 'won' then
-    raise exception 'won_requires_handoff' using errcode = 'PT422',
-      hint = 'A deal becomes won only through handoff_deal_to_production';
+    select o.stage into v_order_stage from public.production_orders o where o.deal_id = p_deal_id;
+    if v_deal.stage <> 'sent-to-production' or v_order_stage is distinct from 'ready' then
+      raise exception 'won_requires_ready_order' using errcode = 'PT422',
+        hint = 'A deal becomes won after its production order is ready';
+    end if;
   end if;
   if v_deal.stage = 'won' and p_to_stage <> 'won' then
     raise exception 'won_is_final' using errcode = 'PT422';
@@ -848,9 +866,14 @@ begin
   -- one move at a time per column keeps the order consistent
   perform pg_advisory_xact_lock(hashtextextended('deal_stage:' || p_to_stage, 0));
 
+  v_set_contract := p_to_stage = 'contract-signed'
+    and (v_deal.stage <> 'contract-signed' or p_contract_signed_at is not null or v_link is not null);
+
   update public.deals
     set stage = p_to_stage,
         updated_at = now(),
+        contract_signed_at = case when v_set_contract then coalesce(p_contract_signed_at, contract_signed_at, current_date) else contract_signed_at end,
+        contract_link = case when v_set_contract then coalesce(v_link, contract_link) else contract_link end,
         lost_reason = case
           when p_to_stage = 'lost' and v_deal.stage <> 'lost' then v_reason
           when v_deal.stage = 'lost' and p_to_stage <> 'lost' then null
@@ -1089,5 +1112,263 @@ begin
   insert into public.staff_roles (sales_id, role)
   select p_sales_id, r from unnest(coalesce(p_roles, '{}'::text[])) r
   on conflict do nothing;
+end;
+$$;
+
+--
+-- Production handoff, workshop board and notifications
+--
+
+CREATE OR REPLACE FUNCTION "private"."is_production_staff"() RETURNS boolean
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+  select private.has_role('workshop') or private.has_role('production_head')
+$$;
+
+-- Deal id encoded as the first folder of an order file path, e.g. "12/3f2a-banner.pdf"
+CREATE OR REPLACE FUNCTION "private"."order_file_deal_id"("p_name" "text") RETURNS bigint
+    LANGUAGE "sql" IMMUTABLE
+    SET "search_path" TO ''
+    AS $$
+  select case when p_name ~ '^[0-9]{1,18}/' then split_part(p_name, '/', 1)::bigint end
+$$;
+
+CREATE OR REPLACE FUNCTION "public"."handoff_deal_to_production"("p_deal_id" bigint, "p_expected_version" integer, "p_product_name" "text", "p_instructions" "text" DEFAULT NULL::"text", "p_due_date" "date" DEFAULT NULL::"date", "p_files" "jsonb" DEFAULT '[]'::"jsonb", "p_links" "jsonb" DEFAULT '[]'::"jsonb", "p_request_key" "text" DEFAULT NULL::"text") RETURNS "jsonb"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_uid uuid := (select auth.uid());
+  v_me bigint := private.current_sales_id();
+  v_head boolean;
+  v_deal public.deals%rowtype;
+  v_order public.production_orders%rowtype;
+  v_res jsonb;
+  v_name text := nullif(btrim(coalesce(p_product_name, '')), '');
+  v_instructions text := nullif(btrim(coalesce(p_instructions, '')), '');
+  v_files jsonb := coalesce(p_files, '[]'::jsonb);
+  v_links jsonb := coalesce(p_links, '[]'::jsonb);
+  v_item jsonb;
+  v_url text;
+  v_path text;
+  v_customer text;
+begin
+  if v_uid is null or v_me is null then
+    raise exception 'not_authenticated' using errcode = 'PT401';
+  end if;
+  if not private.is_sales_staff() then
+    raise exception 'forbidden' using errcode = 'PT403';
+  end if;
+  v_head := private.is_sales_head();
+
+  v_res := private.command_replay(v_uid, p_request_key, 'handoff_deal_to_production');
+  if v_res is not null then
+    return v_res;
+  end if;
+
+  select * into v_deal from public.deals where id = p_deal_id for update;
+  if not found or v_deal.archived_at is not null then
+    raise exception 'deal_not_found' using errcode = 'PT404';
+  end if;
+  if not v_head and v_deal.sales_id is distinct from v_me then
+    raise exception 'not_your_deal' using errcode = 'PT403';
+  end if;
+
+  -- A second request, or a second window, gets the same order
+  select * into v_order from public.production_orders o where o.deal_id = p_deal_id;
+  if found then
+    return private.command_store(v_uid, p_request_key, 'handoff_deal_to_production', p_deal_id, jsonb_build_object(
+      'order_id', v_order.id, 'deal_id', p_deal_id, 'version', v_deal.version, 'stage', v_deal.stage,
+      'order_stage', v_order.stage, 'replayed', true));
+  end if;
+
+  if p_expected_version is null or v_deal.version <> p_expected_version then
+    raise exception 'deal_version_conflict' using errcode = 'PT409';
+  end if;
+  if v_deal.stage <> 'contract-signed' then
+    raise exception 'contract_required' using errcode = 'PT422',
+      hint = 'Move the deal to "contract signed" before the handoff';
+  end if;
+  if v_name is null then
+    raise exception 'product_name_required' using errcode = 'PT422';
+  end if;
+  if jsonb_typeof(v_files) <> 'array' or jsonb_typeof(v_links) <> 'array'
+     or jsonb_array_length(v_files) > 30 or jsonb_array_length(v_links) > 30 then
+    raise exception 'invalid_materials' using errcode = 'PT422';
+  end if;
+
+  for v_item in select * from jsonb_array_elements(v_links) loop
+    v_url := btrim(coalesce(v_item ->> 'url', ''));
+    if v_url !~ '^https?://[^[:space:]]+$' then
+      raise exception 'invalid_link' using errcode = 'PT422';
+    end if;
+  end loop;
+  for v_item in select * from jsonb_array_elements(v_files) loop
+    v_path := coalesce(v_item ->> 'path', '');
+    if private.order_file_deal_id(v_path) is distinct from p_deal_id
+       or not exists (select 1 from storage.objects so where so.bucket_id = 'order-files' and so.name = v_path) then
+      raise exception 'invalid_file' using errcode = 'PT422';
+    end if;
+  end loop;
+
+  select coalesce(nullif(btrim(co.name), ''), nullif(btrim(coalesce(c.first_name, '') || ' ' || coalesce(c.last_name, '')), ''), '')
+    into v_customer
+  from (select 1) x
+    left join public.companies co on co.id = v_deal.company_id
+    left join public.contacts c on c.id = v_deal.contact_ids[1];
+
+  insert into public.production_orders (deal_id, product_name, instructions, due_date, customer_name, files_count, links_count, handed_off_by)
+  values (p_deal_id, v_name, v_instructions, p_due_date, coalesce(v_customer, ''),
+          jsonb_array_length(v_files), jsonb_array_length(v_links), v_me)
+  returning * into v_order;
+
+  insert into public.production_order_materials (order_id, kind, file_path, file_name, file_size, mime_type)
+  select v_order.id, 'file', f ->> 'path', coalesce(nullif(btrim(f ->> 'name'), ''), f ->> 'path'),
+         nullif(f ->> 'size', '')::bigint, nullif(f ->> 'type', '')
+  from jsonb_array_elements(v_files) f;
+  insert into public.production_order_materials (order_id, kind, url, label)
+  select v_order.id, 'link', btrim(l ->> 'url'), nullif(btrim(coalesce(l ->> 'label', '')), '')
+  from jsonb_array_elements(v_links) l;
+
+  insert into public.order_stage_history (order_id, event, to_stage, changed_by)
+  values (v_order.id, 'created', 'accepted', v_me);
+
+  update public.deals
+    set stage = 'sent-to-production',
+        updated_at = now(),
+        index = (select coalesce(max(d.index), -1) + 1 from public.deals d where d.stage = 'sent-to-production' and d.archived_at is null)
+    where id = p_deal_id;
+  perform private.log_deal_event(p_deal_id, 'stage', v_deal.stage, 'sent-to-production', v_deal.sales_id, v_deal.sales_id, v_me, null);
+
+  select * into v_deal from public.deals where id = p_deal_id;
+  return private.command_store(v_uid, p_request_key, 'handoff_deal_to_production', p_deal_id, jsonb_build_object(
+    'order_id', v_order.id, 'deal_id', p_deal_id, 'version', v_deal.version, 'stage', v_deal.stage,
+    'order_stage', v_order.stage, 'replayed', false));
+end;
+$$;
+
+CREATE OR REPLACE FUNCTION "public"."transition_production_order"("p_order_id" bigint, "p_expected_version" integer, "p_to_stage" "text", "p_request_key" "text" DEFAULT NULL::"text") RETURNS "jsonb"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_uid uuid := (select auth.uid());
+  v_me bigint := private.current_sales_id();
+  v_order public.production_orders%rowtype;
+  v_res jsonb;
+  v_manager bigint;
+  v_notified boolean := false;
+  v_old_stage text;
+begin
+  if v_uid is null or v_me is null then
+    raise exception 'not_authenticated' using errcode = 'PT401';
+  end if;
+  if not private.is_production_staff() then
+    raise exception 'forbidden' using errcode = 'PT403';
+  end if;
+  if p_to_stage is null or p_to_stage not in ('accepted', 'in-progress', 'ready') then
+    raise exception 'invalid_stage' using errcode = 'PT422';
+  end if;
+
+  v_res := private.command_replay(v_uid, p_request_key, 'transition_production_order');
+  if v_res is not null then
+    return v_res;
+  end if;
+
+  select * into v_order from public.production_orders where id = p_order_id for update;
+  if not found then
+    raise exception 'order_not_found' using errcode = 'PT404';
+  end if;
+
+  -- Two people dropped the card on the same column: the second one changes nothing and notifies nobody
+  if v_order.stage = p_to_stage then
+    return private.command_store(v_uid, p_request_key, 'transition_production_order', null, jsonb_build_object(
+      'order_id', v_order.id, 'version', v_order.version, 'stage', v_order.stage, 'notified', false, 'replayed', true));
+  end if;
+  if p_expected_version is null or v_order.version <> p_expected_version then
+    raise exception 'order_version_conflict' using errcode = 'PT409';
+  end if;
+
+  v_old_stage := v_order.stage;
+  update public.production_orders
+    set stage = p_to_stage,
+        version = version + 1,
+        updated_at = now(),
+        ready_cycle = case when p_to_stage = 'ready' then ready_cycle + 1 else ready_cycle end,
+        ready_at = case when p_to_stage = 'ready' then now() else ready_at end,
+        ready_by = case when p_to_stage = 'ready' then v_me else ready_by end
+    where id = p_order_id
+    returning * into v_order;
+
+  insert into public.order_stage_history (order_id, event, from_stage, to_stage, changed_by)
+  values (p_order_id, 'stage', v_old_stage, p_to_stage, v_me);
+
+  -- The notification is created in the same transaction as the transition
+  if p_to_stage = 'ready' then
+    select d.sales_id into v_manager from public.deals d where d.id = v_order.deal_id;
+    if v_manager is not null then
+      insert into public.notification_events (recipient_sales_id, kind, order_id, deal_id, ready_cycle, payload)
+      values (v_manager, 'order_ready', v_order.id, v_order.deal_id, v_order.ready_cycle,
+              jsonb_build_object('order_number', v_order.id, 'customer_name', v_order.customer_name, 'product_name', v_order.product_name))
+      on conflict (order_id, ready_cycle, kind) do nothing;
+      v_notified := true;
+    end if;
+  end if;
+
+  return private.command_store(v_uid, p_request_key, 'transition_production_order', null, jsonb_build_object(
+    'order_id', v_order.id, 'version', v_order.version, 'stage', v_order.stage, 'notified', v_notified, 'replayed', false));
+end;
+$$;
+
+CREATE OR REPLACE FUNCTION "public"."open_notification"("p_id" bigint) RETURNS "jsonb"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_me bigint := private.current_sales_id();
+  v_row public.notification_events%rowtype;
+begin
+  if v_me is null then
+    raise exception 'not_authenticated' using errcode = 'PT401';
+  end if;
+  select * into v_row from public.notification_events where id = p_id for update;
+  if not found or v_row.recipient_sales_id <> v_me then
+    raise exception 'notification_not_found' using errcode = 'PT404';
+  end if;
+  update public.notification_events set opened_at = coalesce(opened_at, now()) where id = p_id returning * into v_row;
+  return jsonb_build_object('id', v_row.id, 'opened_at', v_row.opened_at, 'acknowledged_at', v_row.acknowledged_at);
+end;
+$$;
+
+CREATE OR REPLACE FUNCTION "public"."acknowledge_notification"("p_id" bigint) RETURNS "jsonb"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_me bigint := private.current_sales_id();
+  v_row public.notification_events%rowtype;
+begin
+  if v_me is null then
+    raise exception 'not_authenticated' using errcode = 'PT401';
+  end if;
+  select * into v_row from public.notification_events where id = p_id for update;
+  if not found then
+    raise exception 'notification_not_found' using errcode = 'PT404';
+  end if;
+  if v_row.recipient_sales_id <> v_me then
+    raise exception 'not_your_notification' using errcode = 'PT403';
+  end if;
+  if v_row.acknowledged_at is null then
+    -- Opening the card comes first: the confirmation proves the manager has seen the order
+    if v_row.opened_at is null then
+      raise exception 'open_first' using errcode = 'PT422';
+    end if;
+    update public.notification_events
+      set acknowledged_at = now(), acknowledged_by = v_me
+      where id = p_id
+      returning * into v_row;
+  end if;
+  return jsonb_build_object('id', v_row.id, 'opened_at', v_row.opened_at, 'acknowledged_at', v_row.acknowledged_at);
 end;
 $$;

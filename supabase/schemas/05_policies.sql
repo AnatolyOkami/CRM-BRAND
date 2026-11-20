@@ -138,3 +138,24 @@ create policy "Enable update for admins" on public.configuration for update to a
 
 -- Favicons excluded domains
 create policy "Enable access for authenticated users only" on public.favicons_excluded_domains to authenticated using (true) with check (true);
+
+-- Production orders: the workshop sees every order handed over, a manager the orders of visible deals
+alter table public.production_orders enable row level security;
+alter table public.production_order_materials enable row level security;
+alter table public.order_stage_history enable row level security;
+alter table public.notification_events enable row level security;
+
+create policy "Orders are visible by role" on public.production_orders for select to authenticated using (
+    (select private.is_production_staff())
+    or (select private.is_sales_head())
+    or ((select private.has_role('manager')) and exists (select 1 from public.deals d where d.id = production_orders.deal_id))
+);
+create policy "Materials follow order visibility" on public.production_order_materials for select to authenticated using (
+    exists (select 1 from public.production_orders o where o.id = production_order_materials.order_id)
+);
+create policy "Order history follows order visibility" on public.order_stage_history for select to authenticated using (
+    exists (select 1 from public.production_orders o where o.id = order_stage_history.order_id)
+);
+create policy "Notifications belong to their recipient" on public.notification_events for select to authenticated using (
+    recipient_sales_id = (select private.current_sales_id())
+);
