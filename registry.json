@@ -48,6 +48,14 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/tasks/taskTabs.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/tasks/TasksPage.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/tasks/TasksListFilter.tsx",
           "type": "registry:component"
         },
@@ -180,11 +188,19 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/sales/staffRoles.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/sales/salesErrorNotification.ts",
           "type": "registry:component"
         },
         {
           "path": "src/components/atomic-crm/sales/index.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/sales/StaffRolesInput.tsx",
           "type": "registry:component"
         },
         {
@@ -217,6 +233,10 @@
         },
         {
           "path": "src/components/atomic-crm/root/config.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/root/Landing.tsx",
           "type": "registry:component"
         },
         {
@@ -340,6 +360,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/providers/commons/russianCrmMessages.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/providers/commons/mergeContacts.ts",
           "type": "registry:component"
         },
@@ -365,6 +389,10 @@
         },
         {
           "path": "src/components/atomic-crm/providers/commons/englishCrmMessages.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/providers/commons/dealCommands.ts",
           "type": "registry:component"
         },
         {
@@ -468,6 +496,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/misc/companyTime.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/misc/Status.tsx",
           "type": "registry:component"
         },
@@ -564,6 +596,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/layout/SideMenu.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/layout/PullToRefresh.tsx",
           "type": "registry:component"
         },
@@ -600,7 +636,15 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/deals/useDealBoardCommands.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/deals/stages.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/deals/manualDeal.ts",
           "type": "registry:component"
         },
         {
@@ -612,7 +656,15 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/deals/boardUtils.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/deals/OnlyMineInput.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/deals/LostReasonDialog.tsx",
           "type": "registry:component"
         },
         {
@@ -629,6 +681,10 @@
         },
         {
           "path": "src/components/atomic-crm/deals/DealInputs.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/deals/DealHistory.tsx",
           "type": "registry:component"
         },
         {
