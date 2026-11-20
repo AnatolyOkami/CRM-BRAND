@@ -36,7 +36,7 @@ export const DealEmpty = ({ children }: { children?: ReactNode }) => {
         src="./img/empty.svg"
         alt={translate("resources.deals.empty.title")}
       />
-      {contacts && contacts.length > 0 ? (
+      {contacts ? (
         <>
           <div className="flex flex-col items-center gap-0">
             <h3 className="text-lg font-bold">

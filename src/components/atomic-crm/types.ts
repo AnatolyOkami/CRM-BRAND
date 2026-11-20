@@ -126,9 +126,71 @@ export type Deal = {
   updated_at: string;
   archived_at?: string;
   expected_closing_date: string | null;
-  sales_id: Identifier;
+  // null while the deal waits in the shared queue
+  sales_id: Identifier | null;
   index: number;
+  source: DealSource;
+  received_at: string;
+  first_response_due_at: string | null;
+  first_responded_at: string | null;
+  // optimistic lock used by the deal commands
+  version: number;
+  lost_reason?: string | null;
+  is_historical?: boolean;
 } & Pick<RaRecord, "id">;
+
+export type DealSource =
+  "website" | "avito" | "telegram" | "whatsapp" | "phone" | "manual" | "other";
+
+export type StaffRole =
+  "manager" | "sales_head" | "production_head" | "workshop" | "fulfillment";
+
+export type StaffRoleRecord = {
+  sales_id: Identifier;
+  role: StaffRole;
+} & Pick<RaRecord, "id">;
+
+export type DealStageHistory = {
+  deal_id: Identifier;
+  event: "created" | "claimed" | "stage" | "assigned" | "released";
+  from_stage: string | null;
+  to_stage: string | null;
+  from_sales_id: Identifier | null;
+  to_sales_id: Identifier | null;
+  changed_by: Identifier | null;
+  reason: string | null;
+  created_at: string;
+} & Pick<RaRecord, "id">;
+
+/** Answer of the deal commands (claim, transition, assign, create). */
+export type DealCommandResult = {
+  deal_id: Identifier;
+  version: number;
+  stage: string;
+  sales_id: Identifier | null;
+  index?: number;
+  task_id?: Identifier | null;
+  contact_id?: Identifier;
+  replayed: boolean;
+};
+
+export type ManualDealData = {
+  name: string;
+  contact_id?: Identifier;
+  new_contact?: {
+    first_name?: string;
+    last_name?: string;
+    phone?: string;
+    email?: string;
+  };
+  company_id?: Identifier | null;
+  description?: string;
+  source: DealSource;
+  received_at?: string;
+  categories?: string[];
+  amount?: number | null;
+  assign_to_me?: boolean;
+};
 
 export type DealNote = {
   deal_id: Identifier;
@@ -155,6 +217,7 @@ export type Task = {
   done_date?: string | null;
   sales_id?: Identifier;
   created_at?: string;
+  deal_id?: Identifier | null;
 } & Pick<RaRecord, "id">;
 
 export type ActivityCompanyCreated = {
@@ -183,7 +246,7 @@ export type ActivityContactNoteCreated = {
 export type ActivityDealCreated = {
   type: typeof DEAL_CREATED;
   company_id: Identifier;
-  sales_id?: Identifier;
+  sales_id?: Identifier | null;
   deal: Deal;
   date: string;
 };

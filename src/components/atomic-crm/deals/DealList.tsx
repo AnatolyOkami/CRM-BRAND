@@ -17,6 +17,7 @@ import { FilterButton } from "@/components/admin/filter-form";
 import { SearchInput } from "@/components/admin/search-input";
 
 import { DataImportButton } from "../dataImport/DataImportButton";
+import { isSalesHead } from "../providers/commons/canAccess";
 import { useConfigurationContext } from "../root/ConfigurationContext";
 import { TopToolbar } from "../layout/TopToolbar";
 import { AccountManagerInput } from "../sales/AccountManagerInput";
@@ -70,7 +71,7 @@ const DealList = () => {
     ...(isPending
       ? []
       : [
-          canAccessSalesList ? (
+          canAccessSalesList || isSalesHead(identity.roles) ? (
             <AccountManagerInput source="sales_id" alwaysOn />
           ) : (
             <OnlyMineInput source="sales_id" alwaysOn />
@@ -80,7 +81,8 @@ const DealList = () => {
 
   return (
     <List
-      perPage={100}
+      // The columns of the board load their own pages: this query only carries the filters
+      perPage={1}
       filter={{ "archived_at@is": null }}
       title={false}
       sort={{ field: "index", order: "DESC" }}
@@ -124,14 +126,19 @@ const DealLayout = () => {
   );
 };
 
-const DealActions = () => (
-  <TopToolbar>
-    <FilterButton />
-    <DataImportButton resource="deals" />
-    <ExportButton />
-    <CreateButton label="resources.deals.action.new" />
-  </TopToolbar>
-);
+const DealActions = () => {
+  const { identity } = useGetIdentity();
+  // Importing past deals writes straight into the won stage: only the sales head may do it
+  const canImport = identity?.roles == null || isSalesHead(identity.roles);
+  return (
+    <TopToolbar>
+      <FilterButton />
+      {canImport && <DataImportButton resource="deals" />}
+      <ExportButton />
+      <CreateButton label="crm.board.new_request" />
+    </TopToolbar>
+  );
+};
 
 /**
  *

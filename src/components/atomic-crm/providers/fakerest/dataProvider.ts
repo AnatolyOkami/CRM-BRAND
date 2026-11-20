@@ -14,6 +14,7 @@ import type {
   ContactNote,
   Deal,
   DealNote,
+  ManualDealData,
   Sale,
   SalesFormData,
   SearchResourceName,
@@ -24,6 +25,11 @@ import type {
 } from "../../types";
 import type { ConfigurationContextValue } from "../../root/ConfigurationContext";
 import { getActivityLog } from "../commons/activity";
+import {
+  DealCommandError,
+  type AssignDealParams,
+  type TransitionDealParams,
+} from "../commons/dealCommands";
 import { getCompanyAvatar } from "../commons/getCompanyAvatar";
 import { getContactAvatar } from "../commons/getContactAvatar";
 import { mergeContacts } from "../commons/mergeContacts";
@@ -157,6 +163,42 @@ export const createDataProvider = ({
   const getIdentity = async () =>
     authProvider?.getIdentity?.() ?? defaultAuthProvider.getIdentity?.();
 
+  // Gives the deal to a person, moves it to "to-contact" and adds the first contact task
+  const assignInMemory = async (deal: Deal, salesId: Identifier) => {
+    await baseDataProvider.update("deals", {
+      id: deal.id,
+      data: {
+        sales_id: salesId,
+        stage: "to-contact",
+        version: (deal.version ?? 1) + 1,
+      },
+      previousData: deal,
+    });
+    let taskId: Identifier | null = null;
+    const contactId = deal.contact_ids?.[0];
+    if (contactId != null) {
+      const { data: task } = await baseDataProvider.create<Task>("tasks", {
+        data: {
+          contact_id: contactId,
+          deal_id: deal.id,
+          type: "first-contact",
+          text: `Первый контакт по заявке «${deal.name}»`,
+          due_date: deal.first_response_due_at ?? new Date().toISOString(),
+          sales_id: salesId,
+        },
+      });
+      taskId = task.id;
+    }
+    return {
+      deal_id: deal.id,
+      version: (deal.version ?? 1) + 1,
+      stage: "to-contact",
+      sales_id: salesId,
+      task_id: taskId,
+      replayed: false,
+    };
+  };
+
   const updateCompany = async (
     companyId: Identifier,
     updateFn: (company: Company) => Partial<Company>,
@@ -204,29 +246,169 @@ export const createDataProvider = ({
       return baseDataProvider.getList(resource, params);
     },
     unarchiveDeal: async (deal: Deal) => {
-      // get all deals where stage is the same as the deal to unarchive
-      const { data: deals } = await baseDataProvider.getList<Deal>("deals", {
-        filter: { stage: deal.stage },
+      return baseDataProvider.update("deals", {
+        id: deal.id,
+        data: { archived_at: null },
+        previousData: deal,
+      });
+    },
+    claimDeal: async (dealId: Identifier) => {
+      const identity = await getIdentity();
+      const { data: deal } = await baseDataProvider.getOne<Deal>("deals", {
+        id: dealId,
+      });
+      if (deal.sales_id != null && deal.sales_id !== identity?.id) {
+        throw new DealCommandError("deal_already_assigned", 409);
+      }
+      return assignInMemory(deal, identity?.id as Identifier);
+    },
+    transitionDeal: async ({
+      dealId,
+      expectedVersion,
+      toStage,
+      beforeDealId,
+      reason,
+    }: TransitionDealParams) => {
+      const { data: deal } = await baseDataProvider.getOne<Deal>("deals", {
+        id: dealId,
+      });
+      if ((deal.version ?? 1) !== expectedVersion) {
+        throw new DealCommandError("deal_version_conflict", 409);
+      }
+      if (toStage === "won") {
+        throw new DealCommandError("won_requires_handoff", 422);
+      }
+      if (toStage === "lost" && !reason?.trim()) {
+        throw new DealCommandError("reason_required", 422);
+      }
+      const { data: column } = await baseDataProvider.getList<Deal>("deals", {
+        filter: { stage: toStage, "archived_at@is": null },
         pagination: { page: 1, perPage: 1000 },
         sort: { field: "index", order: "ASC" },
       });
-
-      // set index for each deal starting from 1, if the deal to unarchive is found, set its index to the last one
-      const updatedDeals = deals.map((d, index) => ({
-        ...d,
-        index: d.id === deal.id ? 0 : index + 1,
-        archived_at: d.id === deal.id ? null : d.archived_at,
-      }));
-
-      return await Promise.all(
-        updatedDeals.map((updatedDeal) =>
-          dataProvider.update("deals", {
-            id: updatedDeal.id,
-            data: updatedDeal,
-            previousData: deals.find((d) => d.id === updatedDeal.id),
+      const others = column.filter((d) => d.id !== dealId);
+      const position = others.findIndex((d) => d.id === beforeDealId);
+      const ordered =
+        position === -1
+          ? [...others, deal]
+          : [...others.slice(0, position), deal, ...others.slice(position)];
+      await Promise.all(
+        ordered.map((d, index) =>
+          baseDataProvider.update("deals", {
+            id: d.id,
+            data:
+              d.id === dealId
+                ? {
+                    stage: toStage,
+                    index,
+                    version: (deal.version ?? 1) + 1,
+                    lost_reason: toStage === "lost" ? reason : null,
+                    first_responded_at:
+                      toStage === "contacted" && !deal.first_responded_at
+                        ? new Date().toISOString()
+                        : deal.first_responded_at,
+                  }
+                : { index },
+            previousData: d,
           }),
         ),
       );
+      return {
+        deal_id: dealId,
+        version: (deal.version ?? 1) + 1,
+        stage: toStage,
+        sales_id: deal.sales_id,
+        index: ordered.findIndex((d) => d.id === dealId),
+        replayed: false,
+      };
+    },
+    assignDeal: async ({ dealId, toSalesId }: AssignDealParams) => {
+      const { data: deal } = await baseDataProvider.getOne<Deal>("deals", {
+        id: dealId,
+      });
+      if (toSalesId == null) {
+        await baseDataProvider.update("deals", {
+          id: dealId,
+          data: {
+            sales_id: null,
+            stage: "opportunity",
+            version: (deal.version ?? 1) + 1,
+          },
+          previousData: deal,
+        });
+        return {
+          deal_id: dealId,
+          version: (deal.version ?? 1) + 1,
+          stage: "opportunity",
+          sales_id: null,
+          replayed: false,
+        };
+      }
+      return assignInMemory(deal, toSalesId);
+    },
+    createManualDeal: async (data: ManualDealData) => {
+      const identity = await getIdentity();
+      let contactId = data.contact_id;
+      if (contactId == null) {
+        const { data: contact } = await baseDataProvider.create<Contact>(
+          "contacts",
+          {
+            data: {
+              first_name: data.new_contact?.first_name ?? "Клиент",
+              last_name: data.new_contact?.last_name ?? "",
+              email_jsonb: data.new_contact?.email
+                ? [{ email: data.new_contact.email, type: "Work" }]
+                : [],
+              phone_jsonb: data.new_contact?.phone
+                ? [{ number: data.new_contact.phone, type: "Work" }]
+                : [],
+              company_id: data.company_id ?? null,
+              sales_id: identity?.id,
+              first_seen: new Date().toISOString(),
+              last_seen: new Date().toISOString(),
+              tags: [],
+            },
+          },
+        );
+        contactId = contact.id;
+      }
+      const now = new Date().toISOString();
+      const { data: deal } = await baseDataProvider.create<Deal>("deals", {
+        data: {
+          name: data.name,
+          company_id: data.company_id ?? null,
+          contact_ids: [contactId],
+          categories: data.categories ?? [],
+          stage: "opportunity",
+          description: data.description ?? "",
+          amount: data.amount ?? null,
+          source: data.source,
+          received_at: data.received_at ?? now,
+          first_response_due_at: data.received_at ?? now,
+          first_responded_at: null,
+          version: 1,
+          sales_id: null,
+          index: 0,
+          created_at: now,
+          updated_at: now,
+        },
+      });
+      if (data.assign_to_me ?? true) {
+        const result = await assignInMemory(deal, identity?.id as Identifier);
+        return { ...result, contact_id: contactId };
+      }
+      return {
+        deal_id: deal.id,
+        contact_id: contactId,
+        version: 1,
+        stage: "opportunity",
+        sales_id: null,
+        task_id: null,
+        replayed: false,
+      };
+    },
+    setStaffRoles: async () => {
+      // The demo has no role restrictions
     },
     signUp: async ({
       email,

@@ -81,6 +81,11 @@ export function useDealImport(): ProcessImportBatch {
               expected_closing_date: toClosingDate(row.expected_closing_date),
               sales_id: identity?.id,
               index: indexes.get(row) ?? 0,
+              // Imported deals are past deals: the database accepts a plain insert,
+              // possibly straight into won, only for the sales head and only so
+              source: "other",
+              received_at: now,
+              is_historical: true,
               created_at: now,
               updated_at: now,
             },

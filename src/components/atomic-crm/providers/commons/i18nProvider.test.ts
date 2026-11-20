@@ -6,8 +6,9 @@ afterEach(() => {
 });
 
 describe("i18nProvider", () => {
-  it("registers en and fr locales", () => {
+  it("registers ru, en and fr locales", () => {
     expect(i18nProvider.getLocales?.()).toEqual([
+      { locale: "ru", name: "Русский" },
       { locale: "en", name: "English" },
       { locale: "fr", name: "Français" },
     ]);
@@ -45,21 +46,40 @@ describe("i18nProvider", () => {
     );
   });
 
-  it("uses browser french locale when available", () => {
-    vi.stubGlobal("navigator", {
-      language: "fr-FR",
-      languages: ["fr-FR", "en-US"],
-    });
+  it("translates the interface in russian", async () => {
+    await i18nProvider.changeLocale("ru");
 
-    expect(getInitialLocale()).toBe("fr");
+    expect(i18nProvider.translate("crm.language")).toBe("Язык");
+    expect(i18nProvider.translate("crm.menu.sales")).toBe("Продажи");
+    expect(i18nProvider.translate("resources.deals.sources.avito")).toBe(
+      "Авито",
+    );
   });
 
-  it("falls back to english when browser locale is unsupported", () => {
+  it("uses plural forms of Russian", async () => {
+    await i18nProvider.changeLocale("ru");
+    const key = "crm.common.task_count";
+
+    expect(i18nProvider.translate(key, { smart_count: 1 })).toBe("1 задача");
+    expect(i18nProvider.translate(key, { smart_count: 3 })).toBe("3 задачи");
+    expect(i18nProvider.translate(key, { smart_count: 5 })).toBe("5 задач");
+    expect(i18nProvider.translate(key, { smart_count: 21 })).toBe("21 задача");
+  });
+
+  it("starts in russian whatever the browser language is", () => {
     vi.stubGlobal("navigator", {
-      language: "es-ES",
-      languages: ["es-ES", "pt-BR"],
+      language: "en-US",
+      languages: ["en-US"],
     });
 
-    expect(getInitialLocale()).toBe("en");
+    expect(getInitialLocale()).toBe("ru");
+  });
+
+  it("keeps the english catalog available for missing russian keys", async () => {
+    await i18nProvider.changeLocale("ru");
+
+    expect(i18nProvider.translate("ra-supabase.auth.password_reset")).toBe(
+      "Check your emails for a Reset Password message.",
+    );
   });
 });

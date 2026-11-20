@@ -10,7 +10,10 @@ import {
 import type {
   ContactNote,
   Deal,
+  DealCommandResult,
   DealNote,
+  ManualDealData,
+  StaffRole,
   RAFile,
   Sale,
   SalesFormData,
@@ -20,6 +23,12 @@ import type {
 } from "../../types";
 import type { ConfigurationContextValue } from "../../root/ConfigurationContext";
 import { ATTACHMENTS_BUCKET } from "../commons/attachments";
+import {
+  DealCommandError,
+  newRequestKey,
+  type AssignDealParams,
+  type TransitionDealParams,
+} from "../commons/dealCommands";
 import { config } from "../../root/config";
 import { getIsInitialized } from "./authProvider";
 import { searchDealCategories } from "./searchDealCategories";
@@ -47,6 +56,19 @@ const processCompanyLogo = async (params: any) => {
       logo,
     },
   };
+};
+
+// Runs a deal command in the database. The database answers with HTTP 4xx and a code such as
+// deal_already_assigned, which is turned into a DealCommandError.
+const callDealCommand = async (
+  name: string,
+  args: Record<string, unknown>,
+): Promise<DealCommandResult> => {
+  const { data, error, status } = await getSupabaseClient().rpc(name, args);
+  if (error) {
+    throw new DealCommandError(error.message, status);
+  }
+  return data as DealCommandResult;
 };
 
 const getDataProviderWithCustomMethods = () => {
@@ -209,30 +231,83 @@ const getDataProviderWithCustomMethods = () => {
 
       return passwordUpdated;
     },
-    async unarchiveDeal(deal: Deal) {
-      // get all deals where stage is the same as the deal to unarchive
-      const { data: deals } = await baseDataProvider.getList<Deal>("deals", {
-        filter: { stage: deal.stage },
-        pagination: { page: 1, perPage: 1000 },
-        sort: { field: "index", order: "ASC" },
+    async claimDeal(
+      dealId: Identifier,
+      expectedVersion?: number,
+      requestKey: string = newRequestKey(),
+    ) {
+      return callDealCommand("claim_deal", {
+        p_deal_id: dealId,
+        p_expected_version: expectedVersion ?? null,
+        p_request_key: requestKey,
       });
-
-      // set index for each deal starting from 1, if the deal to unarchive is found, set its index to the last one
-      const updatedDeals = deals.map((d, index) => ({
-        ...d,
-        index: d.id === deal.id ? 0 : index + 1,
-        archived_at: d.id === deal.id ? null : d.archived_at,
-      }));
-
-      return await Promise.all(
-        updatedDeals.map((updatedDeal) =>
-          baseDataProvider.update("deals", {
-            id: updatedDeal.id,
-            data: updatedDeal,
-            previousData: deals.find((d) => d.id === updatedDeal.id),
-          }),
-        ),
-      );
+    },
+    async transitionDeal({
+      dealId,
+      expectedVersion,
+      toStage,
+      beforeDealId,
+      reason,
+      requestKey = newRequestKey(),
+    }: TransitionDealParams) {
+      return callDealCommand("transition_deal", {
+        p_deal_id: dealId,
+        p_expected_version: expectedVersion,
+        p_to_stage: toStage,
+        p_before_deal_id: beforeDealId ?? null,
+        p_reason: reason ?? null,
+        p_request_key: requestKey,
+      });
+    },
+    async assignDeal({
+      dealId,
+      expectedVersion,
+      toSalesId,
+      reason,
+      requestKey = newRequestKey(),
+    }: AssignDealParams) {
+      return callDealCommand("assign_deal", {
+        p_deal_id: dealId,
+        p_expected_version: expectedVersion,
+        p_to_sales_id: toSalesId,
+        p_reason: reason ?? null,
+        p_request_key: requestKey,
+      });
+    },
+    async createManualDeal(
+      data: ManualDealData,
+      requestKey: string = newRequestKey(),
+    ) {
+      return callDealCommand("create_manual_deal", {
+        p_name: data.name,
+        p_contact_id: data.contact_id ?? null,
+        p_new_contact: data.new_contact ?? null,
+        p_company_id: data.company_id ?? null,
+        p_description: data.description ?? null,
+        p_source: data.source,
+        p_received_at: data.received_at ?? null,
+        p_categories: data.categories?.length ? data.categories : null,
+        p_amount: data.amount ?? null,
+        p_assign_to_me: data.assign_to_me ?? true,
+        p_request_key: requestKey,
+      });
+    },
+    async setStaffRoles(salesId: Identifier, roles: StaffRole[]) {
+      const { error } = await getSupabaseClient().rpc("set_staff_roles", {
+        p_sales_id: salesId,
+        p_roles: roles,
+      });
+      if (error) {
+        throw new DealCommandError(error.message);
+      }
+    },
+    async unarchiveDeal(deal: Deal) {
+      // Only archived_at changes: stage, owner and order are protected by the database
+      return baseDataProvider.update("deals", {
+        id: deal.id,
+        data: { archived_at: null },
+        previousData: deal,
+      });
     },
     async isInitialized() {
       return getIsInitialized();

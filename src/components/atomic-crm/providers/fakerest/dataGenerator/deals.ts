@@ -41,6 +41,16 @@ export const generateDeals = (db: Db): Deal[] => {
       expected_closing_date,
       sales_id: company.sales_id!,
       index: 0,
+      source: random.arrayElement([
+        "website",
+        "avito",
+        "telegram",
+        "phone",
+      ] as const),
+      received_at: created_at,
+      first_response_due_at: created_at,
+      first_responded_at: created_at,
+      version: 1,
     };
   });
   // compute index based on stage

@@ -360,7 +360,13 @@ const SettingsFormFields = () => {
               helperText={false}
               validate={validateDealStages}
             >
-              <SimpleFormIterator disableClear>
+              {/* Stage codes are system codes: only the labels can be edited */}
+              <SimpleFormIterator
+                disableClear
+                disableAdd
+                disableRemove
+                disableReordering
+              >
                 <TextInput source="label" label={false} />
               </SimpleFormIterator>
             </ArrayInput>

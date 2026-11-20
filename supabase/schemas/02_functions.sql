@@ -1020,8 +1020,8 @@ begin
     -- A customer without a name gets a technical label instead of an invented one
     insert into public.contacts (first_name, last_name, email_jsonb, phone_jsonb, company_id, sales_id, first_seen, last_seen, status)
     values (
-      coalesce(v_first, case when v_last is null then 'Клиент' end),
-      v_last,
+      coalesce(v_first, case when v_last is null then 'Клиент' end, ''),
+      coalesce(v_last, ''),
       case when v_email is null then '[]'::jsonb else jsonb_build_array(jsonb_build_object('email', v_email, 'type', 'Work')) end,
       case when v_phone is null then '[]'::jsonb else jsonb_build_array(jsonb_build_object('number', v_phone, 'type', 'Work')) end,
       p_company_id,

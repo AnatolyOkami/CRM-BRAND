@@ -2,10 +2,12 @@ import { mergeTranslations } from "ra-core";
 import polyglotI18nProvider from "ra-i18n-polyglot";
 import englishMessages from "ra-language-english";
 import frenchMessages from "ra-language-french";
+import russianMessages from "ra-language-russian";
 import { raSupabaseEnglishMessages } from "ra-supabase-language-english";
 import { raSupabaseFrenchMessages } from "ra-supabase-language-french";
 import { englishCrmMessages } from "./englishCrmMessages";
 import { frenchCrmMessages } from "./frenchCrmMessages";
+import { russianCrmMessages } from "./russianCrmMessages";
 
 const raSupabaseEnglishMessagesOverride = {
   "ra-supabase": {
@@ -57,21 +59,23 @@ const frenchCatalog = mergeTranslations(
   frenchCrmMessages,
 );
 
-export const getInitialLocale = (): "en" | "fr" => {
-  if (typeof navigator === "undefined") {
-    return "en";
-  }
+const russianCatalog = mergeTranslations(
+  englishCatalog,
+  russianMessages,
+  russianCrmMessages,
+);
 
-  const browserLocale = navigator.languages?.[0] ?? navigator.language;
-  if (browserLocale?.toLowerCase().startsWith("fr")) {
-    return "fr";
-  }
+export type AppLocale = "ru" | "en" | "fr";
 
-  return "en";
-};
+// The company works in Russian: it is the default whatever the browser language is.
+// A person can still pick another language in the profile, the choice is stored.
+export const getInitialLocale = (): AppLocale => "ru";
 
 export const i18nProvider = polyglotI18nProvider(
   (locale) => {
+    if (locale === "ru") {
+      return russianCatalog;
+    }
     if (locale === "fr") {
       return frenchCatalog;
     }
@@ -79,6 +83,7 @@ export const i18nProvider = polyglotI18nProvider(
   },
   getInitialLocale(),
   [
+    { locale: "ru", name: "Русский" },
     { locale: "en", name: "English" },
     { locale: "fr", name: "Français" },
   ],

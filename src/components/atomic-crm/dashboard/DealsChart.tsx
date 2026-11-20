@@ -8,8 +8,12 @@ import { findDealLabel } from "../deals/dealUtils";
 import { useConfigurationContext } from "../root/ConfigurationContext";
 import type { Deal } from "../types";
 
-const multiplier = {
-  opportunity: 0.2,
+// Probability of closing per stage, keyed by the system stage codes
+const multiplier: Record<string, number> = {
+  opportunity: 0.1,
+  "to-contact": 0.15,
+  contacted: 0.2,
+  "in-work": 0.35,
   "proposal-sent": 0.5,
   "in-negociation": 0.8,
   delayed: 0.3,
@@ -19,7 +23,7 @@ const threeMonthsAgo = new Date(
   new Date().setMonth(new Date().getMonth() - 6),
 ).toISOString();
 
-const DEFAULT_LOCALE = "en-US";
+const DEFAULT_LOCALE = "ru-RU";
 
 export const DealsChart = memo(() => {
   const translate = useTranslate();
@@ -57,20 +61,20 @@ export const DealsChart = memo(() => {
         won: dealsByMonth[month]
           .filter((deal: Deal) => deal.stage === "won")
           .reduce((acc: number, deal: Deal) => {
-            acc += deal.amount;
+            acc += deal.amount ?? 0;
             return acc;
           }, 0),
         pending: dealsByMonth[month]
           .filter((deal: Deal) => !["won", "lost"].includes(deal.stage))
           .reduce((acc: number, deal: Deal) => {
-            // @ts-expect-error - multiplier type issue
-            acc += deal.amount * multiplier[deal.stage];
+            // The amount stays empty until the order is calculated
+            acc += (deal.amount ?? 0) * (multiplier[deal.stage] ?? 0);
             return acc;
           }, 0),
         lost: dealsByMonth[month]
           .filter((deal: Deal) => deal.stage === "lost")
           .reduce((acc: number, deal: Deal) => {
-            acc -= deal.amount;
+            acc -= deal.amount ?? 0;
             return acc;
           }, 0),
       };

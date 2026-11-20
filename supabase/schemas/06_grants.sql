@@ -209,6 +209,7 @@ grant execute on function public.set_staff_roles(bigint, text[]) to authenticate
 revoke all on table public.staff_roles from anon, authenticated;
 grant select on table public.staff_roles to authenticated;
 grant all on table public.staff_roles to service_role;
+grant all on sequence public.staff_roles_id_seq to service_role;
 
 revoke all on table public.business_settings from anon, authenticated;
 grant select, insert, update on table public.business_settings to authenticated;

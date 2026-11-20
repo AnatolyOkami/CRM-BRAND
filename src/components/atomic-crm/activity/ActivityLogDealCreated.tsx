@@ -21,7 +21,7 @@ export function ActivityLogDealCreated({
   const { deal } = activity;
   const { identity, isPending } = useGetIdentity();
   const isCurrentUser = !isPending && identity?.id === activity.sales_id;
-  const salesName = useGetSalesName(activity.sales_id, {
+  const salesName = useGetSalesName(activity.sales_id ?? undefined, {
     enabled: !isCurrentUser,
   });
   return (

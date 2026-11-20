@@ -66,13 +66,17 @@ export const DealsPipeline = () => {
           isPending={isPending}
           primaryText={(deal) => deal.name}
           secondaryText={(deal) =>
-            `${deal.amount.toLocaleString("en-US", {
-              notation: "compact",
-              style: "currency",
-              currency,
-              currencyDisplay: "narrowSymbol",
-              minimumSignificantDigits: 3,
-            })} , ${findDealLabel(dealStages, deal.stage)}`
+            `${
+              deal.amount == null
+                ? "—"
+                : deal.amount.toLocaleString("ru-RU", {
+                    notation: "compact",
+                    style: "currency",
+                    currency,
+                    currencyDisplay: "narrowSymbol",
+                    minimumSignificantDigits: 3,
+                  })
+            } , ${findDealLabel(dealStages, deal.stage)}`
           }
           leftAvatar={(deal) => (
             <ReferenceField

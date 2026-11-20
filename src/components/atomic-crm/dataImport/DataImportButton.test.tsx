@@ -131,7 +131,7 @@ describe("DataImportButton", () => {
     const { dataProvider, screen } = await renderImport(useCompanyImport, [
       {
         name: "Acme",
-        sector: "Information Technology",
+        sector: "Строительство и недвижимость",
         size: 50,
         city: "New York",
         website: "https://acme.example",
@@ -147,7 +147,7 @@ describe("DataImportButton", () => {
     expect(companies[0]).toMatchObject({
       city: "New York",
       name: "Acme",
-      sector: "information-technology",
+      sector: "construction",
       // 50 employees falls in the "50-249 employees" bucket
       size: 250,
       website: "https://acme.example",
@@ -198,8 +198,8 @@ describe("DataImportButton", () => {
       {
         name: "New website",
         company: "Acme",
-        categories: "Website design; Copywriting",
-        stage: "Proposal Sent",
+        categories: "Баннер; Вывеска",
+        stage: "КП отправлено",
         amount: "12000",
         expected_closing_date: "2026-09-30",
       },
@@ -217,7 +217,7 @@ describe("DataImportButton", () => {
     expect(deals).toHaveLength(2);
     expect(deals[0]).toMatchObject({
       amount: 12000,
-      categories: ["website-design", "copywriting"],
+      categories: ["banner", "signboard"],
       company_id: companies[0].id,
       name: "New website",
       stage: "proposal-sent",
@@ -247,9 +247,9 @@ describe("DataImportButton", () => {
     const { dataProvider, screen } = await renderImport(
       useDealImport,
       [
-        { name: "First", stage: "Opportunity" },
-        { name: "Second", stage: "Opportunity" },
-        { name: "Other column", stage: "Proposal Sent" },
+        { name: "First", stage: "Новые заявки" },
+        { name: "Second", stage: "Новые заявки" },
+        { name: "Other column", stage: "КП отправлено" },
       ],
       {
         deals: [
@@ -296,7 +296,7 @@ describe("DataImportButton", () => {
       .upload(
         csvFile("deals.csv", [
           "name,company,stage,amount,expected_closing_date",
-          "New website,Acme,Proposal Sent,4500.50,2026-09-30",
+          "New website,Acme,КП отправлено,4500.50,2026-09-30",
         ]),
       );
     await screen.getByRole("button", { name: "Start import" }).click();

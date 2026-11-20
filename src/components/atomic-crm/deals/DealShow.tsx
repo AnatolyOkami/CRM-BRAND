@@ -1,9 +1,11 @@
 import { useMutation } from "@tanstack/react-query";
+import { formatDistanceStrict } from "date-fns";
 import { Archive, ArchiveRestore } from "lucide-react";
 import {
   InfiniteListBase,
   ShowBase,
   useDataProvider,
+  useLocaleState,
   useNotify,
   useRecordContext,
   useRedirect,
@@ -21,11 +23,16 @@ import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
 
 import { CompanyAvatar } from "../companies/CompanyAvatar";
+import { formatCompanyDateTime, useCompanyTimeZone } from "../misc/companyTime";
+import { getDateFnsLocale } from "../misc/RelativeDate";
 import { NoteCreate } from "../notes/NoteCreate";
 import { NotesIterator } from "../notes/NotesIterator";
 import { useConfigurationContext } from "../root/ConfigurationContext";
+import { useGetSalesName } from "../sales/useGetSalesName";
 import type { Deal } from "../types";
+import { getReplyStatus } from "./boardUtils";
 import { ContactList } from "./ContactList";
+import { DealHistory } from "./DealHistory";
 import {
   findDealLabel,
   formatDealCategories,
@@ -56,8 +63,14 @@ const DealShowContent = () => {
   const translate = useTranslate();
   const { dealStages, dealCategories, currency } = useConfigurationContext();
   const record = useRecordContext<Deal>();
+  const [locale = "ru"] = useLocaleState();
+  const timeZone = useCompanyTimeZone();
+  const ownerName = useGetSalesName(record?.sales_id ?? undefined, {
+    enabled: record?.sales_id != null,
+  });
   if (!record) return null;
   const closingDate = record.expected_closing_date;
+  const reply = getReplyStatus(record);
 
   return (
     <>
@@ -116,13 +129,13 @@ const DealShowContent = () => {
                 {translate("resources.deals.fields.amount")}
               </span>
               <span className="text-sm">
-                {record.amount.toLocaleString("en-US", {
-                  notation: "compact",
-                  style: "currency",
-                  currency,
-                  currencyDisplay: "narrowSymbol",
-                  minimumSignificantDigits: 3,
-                })}
+                {record.amount == null
+                  ? "—"
+                  : record.amount.toLocaleString("ru-RU", {
+                      style: "currency",
+                      currency,
+                      maximumFractionDigits: 0,
+                    })}
               </span>
             </div>
 
@@ -145,6 +158,53 @@ const DealShowContent = () => {
                 {findDealLabel(dealStages, record.stage)}
               </span>
             </div>
+          </div>
+
+          <div className="m-4 grid gap-4 sm:grid-cols-4">
+            <DealFact
+              label={translate("resources.deals.fields.source")}
+              value={translate(`resources.deals.sources.${record.source}`, {
+                _: record.source,
+              })}
+            />
+            <DealFact
+              label={translate("resources.deals.fields.received_at")}
+              value={formatCompanyDateTime(
+                record.received_at,
+                locale,
+                timeZone,
+              )}
+            />
+            <DealFact
+              label={translate("resources.deals.fields.sales_id")}
+              value={
+                record.sales_id == null
+                  ? translate("crm.board.nobody")
+                  : ownerName
+              }
+            />
+            <DealFact
+              label={translate("resources.deals.fields.first_response_due_at")}
+              value={
+                reply.kind === "replied"
+                  ? translate("crm.board.replied")
+                  : reply.kind === "overdue"
+                    ? translate("crm.board.reply_overdue", {
+                        time: formatDistanceStrict(reply.dueAt, new Date(), {
+                          locale: getDateFnsLocale(locale),
+                        }),
+                      })
+                    : reply.kind === "pending"
+                      ? formatCompanyDateTime(reply.dueAt, locale, timeZone)
+                      : "—"
+              }
+            />
+            {record.lost_reason && (
+              <DealFact
+                label={translate("resources.deals.fields.lost_reason")}
+                value={record.lost_reason}
+              />
+            )}
           </div>
 
           {!!record.contact_ids?.length && (
@@ -186,11 +246,23 @@ const DealShowContent = () => {
               <NotesIterator reference="deals" />
             </InfiniteListBase>
           </div>
+
+          <div className="m-4">
+            <Separator className="mb-4" />
+            <DealHistory dealId={record.id} />
+          </div>
         </div>
       </div>
     </>
   );
 };
+
+const DealFact = ({ label, value }: { label: string; value: string }) => (
+  <div className="flex flex-col">
+    <span className="text-xs tracking-wide text-muted-foreground">{label}</span>
+    <span className="text-sm">{value}</span>
+  </div>
+);
 
 const ArchivedTitle = () => {
   const translate = useTranslate();

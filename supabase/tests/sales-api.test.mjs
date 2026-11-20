@@ -47,11 +47,12 @@ const rest = async (token, method, path, body, extraHeaders = {}) => {
   return { status: res.status, body: json };
 };
 
-const rpc = (token, name, args) => rest(token, "POST", `/rest/v1/rpc/${name}`, args);
+const rpc = (token, name, args) =>
+  rest(token, "POST", `/rest/v1/rpc/${name}`, args);
 
 const users = {};
 
-const createUser = async (key, roles) => {
+const createUser = async (key) => {
   const email = `${key}.${RUN}@test.local`;
   const id = crypto.randomUUID();
   // everybody except the very first account has to be invited
@@ -163,10 +164,10 @@ describe("roles", () => {
       "GET",
       `/rest/v1/staff_roles?sales_id=eq.${users.admin.salesId}`,
     );
-    assert.deepEqual(
-      roles.body.map((r) => r.role).sort(),
-      ["manager", "sales_head"],
-    );
+    assert.deepEqual(roles.body.map((r) => r.role).sort(), [
+      "manager",
+      "sales_head",
+    ]);
   });
 
   it("only an administrator can change roles", async () => {
@@ -175,12 +176,10 @@ describe("roles", () => {
       p_roles: ["manager", "sales_head"],
     });
     assert.equal(res.status, 403);
-    const direct = await rest(
-      users.m1.token,
-      "POST",
-      "/rest/v1/staff_roles",
-      { sales_id: users.m1.salesId, role: "sales_head" },
-    );
+    const direct = await rest(users.m1.token, "POST", "/rest/v1/staff_roles", {
+      sales_id: users.m1.salesId,
+      role: "sales_head",
+    });
     assert.ok([401, 403].includes(direct.status));
   });
 
@@ -660,7 +659,10 @@ describe("transition_deal", () => {
     ).body.map((r) => r.id);
     assert.deepEqual(rows, [c.deal_id, a.deal_id, b.deal_id]);
     // a reorder moves no version of the neighbours
-    assert.equal((await getDeal(b.deal_id)).version, (await getDeal(b.deal_id)).version);
+    assert.equal(
+      (await getDeal(b.deal_id)).version,
+      (await getDeal(b.deal_id)).version,
+    );
   });
 });
 
@@ -699,7 +701,10 @@ describe("assign_deal", () => {
     });
     assert.equal(assigned.status, 200);
     assert.equal((await getDeal(row.id)).sales_id, users.m1.salesId);
-    assert.equal((await firstContactTasks(row.id))[0].sales_id, users.m1.salesId);
+    assert.equal(
+      (await firstContactTasks(row.id))[0].sales_id,
+      users.m1.salesId,
+    );
   });
 
   it("only the head assigns to someone else, and only to people who sell", async () => {

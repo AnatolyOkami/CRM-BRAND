@@ -1,7 +1,7 @@
 import type { AuthProvider } from "ra-core";
 import { supabaseAuthProvider } from "ra-supabase-core";
 
-import { canAccess } from "../commons/canAccess";
+import { canAccess, type WorkingRole } from "../commons/canAccess";
 import { getSupabaseClient } from "./supabase";
 
 const getBaseAuthProvider = () =>
@@ -17,6 +17,8 @@ const getBaseAuthProvider = () =>
         id: sale.id,
         fullName: `${sale.first_name} ${sale.last_name}`,
         avatar: sale.avatar?.src,
+        roles: sale.roles as WorkingRole[],
+        administrator: sale.administrator as boolean,
       };
     },
   });
@@ -56,7 +58,11 @@ const getSale = async () => {
   const storage = getLocalStorage();
   const cachedValue = storage?.getItem(CURRENT_SALE_CACHE_KEY);
   if (cachedValue != null) {
-    return JSON.parse(cachedValue);
+    const cachedSale = JSON.parse(cachedValue);
+    // A sale cached before the working roles existed is refreshed
+    if (cachedSale.roles !== undefined) {
+      return cachedSale;
+    }
   }
 
   const { data: dataSession, error: errorSession } =
@@ -78,8 +84,18 @@ const getSale = async () => {
     return undefined;
   }
 
-  storage?.setItem(CURRENT_SALE_CACHE_KEY, JSON.stringify(dataSale));
-  return dataSale;
+  // Working roles decide which parts of the app the person may use
+  const { data: dataRoles } = await getSupabaseClient()
+    .from("staff_roles")
+    .select("role")
+    .eq("sales_id", dataSale.id);
+  const sale = {
+    ...dataSale,
+    roles: (dataRoles ?? []).map((row: { role: string }) => row.role),
+  };
+
+  storage?.setItem(CURRENT_SALE_CACHE_KEY, JSON.stringify(sale));
+  return sale;
 };
 
 function clearCache() {
@@ -159,7 +175,7 @@ export const getAuthProvider = (): AuthProvider => {
 
       // Compute access rights from the sale role
       const role = sale.administrator ? "admin" : "user";
-      return canAccess(role, params);
+      return canAccess(role, params, sale.roles as WorkingRole[] | undefined);
     },
     getAuthorizationDetails(authorizationId: string) {
       return getSupabaseClient().auth.oauth.getAuthorizationDetails(

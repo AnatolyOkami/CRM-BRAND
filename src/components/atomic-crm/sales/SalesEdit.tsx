@@ -2,6 +2,7 @@ import { useMutation } from "@tanstack/react-query";
 import {
   useDataProvider,
   useEditController,
+  useGetList,
   useNotify,
   useRecordContext,
   useRedirect,
@@ -14,9 +15,12 @@ import { SaveButton } from "@/components/admin/form";
 import { Card, CardContent } from "@/components/ui/card";
 
 import type { CrmDataProvider } from "../providers/types";
-import type { Sale, SalesFormData } from "../types";
+import type { Sale, SalesFormData, StaffRole, StaffRoleRecord } from "../types";
 import { getSalesErrorNotification } from "./salesErrorNotification";
 import { SalesInputs } from "./SalesInputs";
+import { StaffRolesInput } from "./StaffRolesInput";
+
+type SalesEditFormData = SalesFormData & { roles?: StaffRole[] };
 
 function EditToolbar() {
   return (
@@ -37,7 +41,7 @@ export function SalesEdit() {
 
   const { mutate } = useMutation({
     mutationKey: ["signup"],
-    mutationFn: async (data: SalesFormData) => {
+    mutationFn: async ({ roles, ...data }: SalesEditFormData) => {
       if (!record) {
         throw new Error(
           translate("resources.sales.edit.record_not_found", {
@@ -45,7 +49,11 @@ export function SalesEdit() {
           }),
         );
       }
-      return dataProvider.salesUpdate(record.id, data);
+      const updated = await dataProvider.salesUpdate(record.id, data);
+      if (roles) {
+        await dataProvider.setStaffRoles(record.id, roles);
+      }
+      return updated;
     },
     onSuccess: () => {
       redirect("/sales");
@@ -67,8 +75,24 @@ export function SalesEdit() {
     },
   });
 
-  const onSubmit: SubmitHandler<SalesFormData> = async (data) => {
+  const onSubmit: SubmitHandler<SalesEditFormData> = async (data) => {
     mutate(data);
+  };
+
+  // The form opens once the current roles are known, so that saving never wipes them by accident
+  const { data: roleRecords, isPending: rolesPending } =
+    useGetList<StaffRoleRecord>(
+      "staff_roles",
+      {
+        filter: { sales_id: record?.id },
+        pagination: { page: 1, perPage: 20 },
+      },
+      { enabled: record?.id != null },
+    );
+  if (!record || rolesPending) return null;
+  const formRecord = {
+    ...record,
+    roles: (roleRecords ?? []).map((row) => row.role),
   };
 
   return (
@@ -78,10 +102,11 @@ export function SalesEdit() {
           <SimpleForm
             toolbar={<EditToolbar />}
             onSubmit={onSubmit as SubmitHandler<any>}
-            record={record}
+            record={formRecord}
           >
             <SaleEditTitle />
             <SalesInputs />
+            <StaffRolesInput />
           </SimpleForm>
         </CardContent>
       </Card>
