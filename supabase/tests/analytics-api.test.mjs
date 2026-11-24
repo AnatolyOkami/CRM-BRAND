@@ -145,13 +145,21 @@ describe("payments", () => {
 });
 
 describe("access to the money", () => {
-  it("is limited to the owner and the sales head", async () => {
-    const deal = await newDeal("private money", 40000);
+  it("is open to every sales person and closed to the workshop and people without a role", async () => {
+    const deal = await newDeal("shared money", 40000);
     await pay(users.m1.token, deal.deal_id, "payment", 15000);
 
-    const stranger = await pay(users.m2.token, deal.deal_id, "payment", 1);
-    assert.equal(stranger.status, 403);
-    for (const key of ["m2", "shop", "boss", "nobody"]) {
+    // a colleague works with the deal of another manager
+    const colleague = await pay(users.m2.token, deal.deal_id, "payment", 1);
+    assert.equal(colleague.status, 200, JSON.stringify(colleague.body));
+    const seen = await rest(
+      users.m2.token,
+      "GET",
+      `/rest/v1/deal_payments?deal_id=eq.${deal.deal_id}`,
+    );
+    assert.equal(seen.body.length, 2);
+
+    for (const key of ["shop", "boss", "nobody"]) {
       const payments = await rest(
         users[key].token,
         "GET",
@@ -170,7 +178,7 @@ describe("access to the money", () => {
       );
     }
     const head = await financeRow(users.admin.token, deal.deal_id);
-    assert.equal(head.paid, 15000);
+    assert.equal(head.paid, 15001);
     const byHead = await pay(users.admin.token, deal.deal_id, "payment", 5000);
     assert.equal(byHead.status, 200);
   });
@@ -358,12 +366,12 @@ describe("totals of the analytics screen", () => {
     assert.equal(byOwner.total_count, 0);
   });
 
-  it("show a manager only own deals while the sales head sees all", async () => {
+  it("show a manager the deals of colleagues, as to the sales head", async () => {
     const asManager = await summary(users.m2.token, {
       p_closing_from: window.from,
       p_closing_to: window.to,
     });
-    assert.equal(asManager.total_count, 0);
+    assert.equal(asManager.total_count, expected.count);
     const asHead = await summary(users.admin.token, {
       p_closing_from: window.from,
       p_closing_to: window.to,

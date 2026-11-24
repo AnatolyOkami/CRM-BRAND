@@ -111,9 +111,9 @@ const requests = [
     30,
   ],
   ["Световой короб «Аптека»", "Мария", "+7 900 100-10-02", "avito", 5],
-  ["Оклейка двух фургонов", "ООО «Логистик»", "+7 900 100-10-03", "phone", 3],
-  ["Объёмные буквы для офиса", "Дмитрий", "+7 900 100-10-04", "telegram", 1],
-  ["Вывеска кофейни", "Ольга", "+7 900 100-10-05", "whatsapp", 0.2],
+  ["Оклейка двух фургонов", "ООО «Логистик»", "+7 900 100-10-03", "other", 3],
+  ["Объёмные буквы для офиса", "Дмитрий", "+7 900 100-10-04", "referral", 1],
+  ["Вывеска кофейни", "Ольга", "+7 900 100-10-05", "yandex-maps", 0.2],
 ];
 for (const [name, first_name, phone, source, ago] of requests) {
   await call(head.token, "POST", "/rest/v1/rpc/create_manual_deal", {
@@ -129,16 +129,16 @@ for (const [name, first_name, phone, source, ago] of requests) {
 const mine = await call(anna.token, "POST", "/rest/v1/rpc/create_manual_deal", {
   p_name: "Стенд для выставки",
   p_new_contact: { first_name: "Виктор", phone: "+7 900 200-20-01" },
-  p_source: "phone",
+  p_source: "other",
   p_amount: 85000,
 });
 await call(anna.token, "POST", "/rest/v1/rpc/transition_deal", {
   p_deal_id: mine.deal_id,
   p_expected_version: mine.version,
-  p_to_stage: "contacted",
+  p_to_stage: "proposal-sent",
 });
 
-// A deal with a signed contract: ready to be handed over to production from the board
+// A deal agreed with the customer ("order"): ready to be handed over to production from the board
 const signContract = async (who, name, phone) => {
   const deal = await call(
     who.token,
@@ -147,15 +147,14 @@ const signContract = async (who, name, phone) => {
     {
       p_name: name,
       p_new_contact: { first_name: name.split(" ")[0], phone },
-      p_source: "phone",
+      p_source: "other",
       p_amount: 120000,
     },
   );
   return call(who.token, "POST", "/rest/v1/rpc/transition_deal", {
     p_deal_id: deal.deal_id,
     p_expected_version: deal.version,
-    p_to_stage: "contract-signed",
-    p_contract_link: "https://example.com/contract.pdf",
+    p_to_stage: "order",
   });
 };
 await signContract(anna, "Вывеска для кофейни", "+7 900 300-30-01");

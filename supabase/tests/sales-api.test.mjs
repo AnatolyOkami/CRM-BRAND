@@ -156,7 +156,7 @@ describe("direct Data API access", () => {
     assert.equal(ok.body[0].description, "edited");
   });
 
-  it("does not let a manager delete deals, promote themselves or read others' deals", async () => {
+  it("does not let a manager delete deals or promote themselves, and shows colleagues' deals", async () => {
     const mine = await rpc(users.m1.token, "create_manual_deal", {
       p_name: "keep me",
       p_new_contact: { first_name: "Keep" },
@@ -178,7 +178,13 @@ describe("direct Data API access", () => {
       "GET",
       `/rest/v1/deals?id=eq.${mine.body.deal_id}`,
     );
-    assert.deepEqual(others.body, []);
+    assert.equal(others.body.length, 1);
+    const outsider = await rest(
+      users.nobody.token,
+      "GET",
+      `/rest/v1/deals?id=eq.${mine.body.deal_id}`,
+    );
+    assert.deepEqual(outsider.body, []);
   });
 
   it("cannot be bypassed by archiving", async () => {
@@ -216,15 +222,15 @@ describe("create_manual_deal", () => {
         phone: "+7 900 111-22-33",
       },
       p_description: "Нужен баннер на фасад",
-      p_source: "phone",
+      p_source: "referral",
       p_received_at: new Date(Date.now() - 3600_000).toISOString(),
     });
     assert.equal(res.status, 200, JSON.stringify(res.body));
-    assert.equal(res.body.stage, "to-contact");
+    assert.equal(res.body.stage, "processing");
     assert.equal(res.body.sales_id, users.m1.salesId);
     assert.ok(res.body.task_id);
     const deal = await getDeal(res.body.deal_id);
-    assert.equal(deal.source, "phone");
+    assert.equal(deal.source, "referral");
     assert.ok(deal.first_response_due_at);
     assert.deepEqual(deal.contact_ids, [res.body.contact_id]);
     const tasks = await firstContactTasks(deal.id);
@@ -278,7 +284,7 @@ describe("create_manual_deal", () => {
 
   it("is idempotent for one request key", async () => {
     const args = {
-      p_name: "once",
+      p_name: `once-${RUN}`,
       p_new_contact: { first_name: "Once" },
       p_request_key: `create-${RUN}`,
     };
@@ -292,7 +298,7 @@ describe("create_manual_deal", () => {
     const deals = await rest(
       SECRET,
       "GET",
-      `/rest/v1/deals?name=eq.once&sales_id=eq.${users.m1.salesId}`,
+      `/rest/v1/deals?name=eq.once-${RUN}&sales_id=eq.${users.m1.salesId}`,
     );
     assert.equal(deals.body.length, 1);
   });
@@ -313,7 +319,7 @@ describe("claim_deal", () => {
       const winner = a.status === 200 ? users.m1 : users.m2;
       const deal = await getDeal(queued.deal_id);
       assert.equal(deal.sales_id, winner.salesId);
-      assert.equal(deal.stage, "to-contact");
+      assert.equal(deal.stage, "processing");
       const tasks = await firstContactTasks(queued.deal_id);
       assert.equal(tasks.length, 1);
       assert.equal(tasks[0].sales_id, winner.salesId);
@@ -371,26 +377,24 @@ describe("transition_deal", () => {
     return res.body;
   };
 
-  it("moves the owner's deal, records the history and the first response", async () => {
+  it("moves the owner's deal and records the history", async () => {
     const deal = await ownDeal("move");
     const res = await rpc(users.m1.token, "transition_deal", {
       p_deal_id: deal.deal_id,
       p_expected_version: deal.version,
-      p_to_stage: "contacted",
+      p_to_stage: "order",
     });
     assert.equal(res.status, 200, JSON.stringify(res.body));
-    assert.equal(res.body.stage, "contacted");
+    assert.equal(res.body.stage, "order");
     assert.ok(res.body.version > deal.version);
-    const row = await getDeal(deal.deal_id);
-    assert.ok(row.first_responded_at);
     const history = await rest(
       SECRET,
       "GET",
       `/rest/v1/deal_stage_history?deal_id=eq.${deal.deal_id}&event=eq.stage`,
     );
     assert.equal(history.body.length, 1);
-    assert.equal(history.body[0].from_stage, "to-contact");
-    assert.equal(history.body[0].to_stage, "contacted");
+    assert.equal(history.body[0].from_stage, "processing");
+    assert.equal(history.body[0].to_stage, "order");
     assert.equal(history.body[0].changed_by, users.m1.salesId);
   });
 
@@ -399,7 +403,7 @@ describe("transition_deal", () => {
     const ok = await rpc(users.m1.token, "transition_deal", {
       p_deal_id: deal.deal_id,
       p_expected_version: deal.version,
-      p_to_stage: "in-work",
+      p_to_stage: "order",
     });
     assert.equal(ok.status, 200);
     const stale = await rpc(users.m1.token, "transition_deal", {
@@ -408,7 +412,7 @@ describe("transition_deal", () => {
       p_to_stage: "proposal-sent",
     });
     assert.equal(stale.status, 409);
-    assert.equal((await getDeal(deal.deal_id)).stage, "in-work");
+    assert.equal((await getDeal(deal.deal_id)).stage, "order");
   });
 
   it("double submit with one request key moves once", async () => {
@@ -416,7 +420,7 @@ describe("transition_deal", () => {
     const args = {
       p_deal_id: deal.deal_id,
       p_expected_version: deal.version,
-      p_to_stage: "in-work",
+      p_to_stage: "order",
       p_request_key: `move-${RUN}`,
     };
     const [a, b] = await Promise.all([
@@ -465,31 +469,32 @@ describe("transition_deal", () => {
     const reopen = await rpc(users.m1.token, "transition_deal", {
       p_deal_id: deal.deal_id,
       p_expected_version: lost.body.version,
-      p_to_stage: "in-work",
+      p_to_stage: "processing",
     });
     assert.equal(reopen.status, 403);
     const byHead = await rpc(users.admin.token, "transition_deal", {
       p_deal_id: deal.deal_id,
       p_expected_version: lost.body.version,
-      p_to_stage: "in-work",
+      p_to_stage: "processing",
     });
     assert.equal(byHead.status, 200);
     assert.equal((await getDeal(deal.deal_id)).lost_reason, null);
   });
 
-  it("a manager cannot move another manager's deal; an unclaimed deal must be claimed first", async () => {
+  it("a colleague moves the deal without taking it over; an unclaimed deal must be claimed first", async () => {
     const deal = await ownDeal("foreign");
-    const foreign = await rpc(users.m2.token, "transition_deal", {
+    const colleague = await rpc(users.m2.token, "transition_deal", {
       p_deal_id: deal.deal_id,
       p_expected_version: deal.version,
-      p_to_stage: "in-work",
+      p_to_stage: "order",
     });
-    assert.equal(foreign.status, 403);
+    assert.equal(colleague.status, 200, JSON.stringify(colleague.body));
+    assert.equal((await getDeal(deal.deal_id)).sales_id, users.m1.salesId);
     const queued = await newQueueDeal("unclaimed");
     const res = await rpc(users.m1.token, "transition_deal", {
       p_deal_id: queued.deal_id,
       p_expected_version: queued.version,
-      p_to_stage: "in-work",
+      p_to_stage: "order",
     });
     assert.equal(res.status, 422);
     assert.match(JSON.stringify(res.body), /claim_required/);
@@ -503,7 +508,7 @@ describe("transition_deal", () => {
       const r = await rpc(users.m1.token, "transition_deal", {
         p_deal_id: d.deal_id,
         p_expected_version: (await getDeal(d.deal_id)).version,
-        p_to_stage: "in-work",
+        p_to_stage: "order",
       });
       assert.equal(r.status, 200);
     }
@@ -511,7 +516,7 @@ describe("transition_deal", () => {
     const res = await rpc(users.m1.token, "transition_deal", {
       p_deal_id: c.deal_id,
       p_expected_version: before,
-      p_to_stage: "in-work",
+      p_to_stage: "order",
       p_before_deal_id: a.deal_id,
     });
     assert.equal(res.status, 200);
@@ -519,7 +524,7 @@ describe("transition_deal", () => {
       await rest(
         SECRET,
         "GET",
-        `/rest/v1/deals?stage=eq.in-work&id=in.(${a.deal_id},${b.deal_id},${c.deal_id})&order=index.asc`,
+        `/rest/v1/deals?stage=eq.order&id=in.(${a.deal_id},${b.deal_id},${c.deal_id})&order=index.asc`,
       )
     ).body.map((r) => r.id);
     assert.deepEqual(rows, [c.deal_id, a.deal_id, b.deal_id]);

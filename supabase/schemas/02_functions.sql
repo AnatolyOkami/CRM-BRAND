@@ -653,12 +653,12 @@ begin
 
   update public.deals
     set sales_id = p_owner,
-        stage = 'to-contact',
+        stage = 'processing',
         updated_at = now(),
-        index = (select coalesce(max(d.index), -1) + 1 from public.deals d where d.stage = 'to-contact' and d.archived_at is null)
+        index = (select coalesce(max(d.index), -1) + 1 from public.deals d where d.stage = 'processing' and d.archived_at is null)
     where id = p_deal_id;
 
-  perform private.log_deal_event(p_deal_id, p_event, v_deal.stage, 'to-contact', v_deal.sales_id, p_owner, p_actor, null);
+  perform private.log_deal_event(p_deal_id, p_event, v_deal.stage, 'processing', v_deal.sales_id, p_owner, p_actor, null);
 
   v_contact_id := v_deal.contact_ids[1];
   if v_contact_id is null then
@@ -718,6 +718,9 @@ begin
      or new.received_at is distinct from old.received_at
      or new.first_response_due_at is distinct from old.first_response_due_at
      or new.first_responded_at is distinct from old.first_responded_at
+     or new.partner_id is distinct from old.partner_id
+     or new.intake_key is distinct from old.intake_key
+     or new.utm is distinct from old.utm
      or new.lost_reason is distinct from old.lost_reason
      or new.is_historical is distinct from old.is_historical then
     raise exception 'deal_system_fields_are_read_only' using errcode = 'PT403',
@@ -782,7 +785,7 @@ begin
 end;
 $$;
 
-CREATE OR REPLACE FUNCTION "public"."transition_deal"("p_deal_id" bigint, "p_expected_version" integer, "p_to_stage" "text", "p_before_deal_id" bigint DEFAULT NULL::bigint, "p_reason" "text" DEFAULT NULL::"text", "p_request_key" "text" DEFAULT NULL::"text", "p_contract_signed_at" "date" DEFAULT NULL::"date", "p_contract_link" "text" DEFAULT NULL::"text") RETURNS "jsonb"
+CREATE OR REPLACE FUNCTION "public"."transition_deal"("p_deal_id" bigint, "p_expected_version" integer, "p_to_stage" "text", "p_before_deal_id" bigint DEFAULT NULL::bigint, "p_reason" "text" DEFAULT NULL::"text", "p_request_key" "text" DEFAULT NULL::"text") RETURNS "jsonb"
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO ''
     AS $$
@@ -796,9 +799,7 @@ declare
   v_new_ids bigint[];
   v_pos integer;
   v_reason text := nullif(btrim(coalesce(p_reason, '')), '');
-  v_link text := nullif(btrim(coalesce(p_contract_link, '')), '');
   v_order_stage text;
-  v_set_contract boolean;
 begin
   if v_uid is null or v_me is null then
     raise exception 'not_authenticated' using errcode = 'PT401';
@@ -808,7 +809,8 @@ begin
   end if;
   v_head := private.is_sales_head();
 
-  if p_to_stage is null or p_to_stage not in ('opportunity', 'to-contact', 'contacted', 'in-work', 'proposal-sent', 'in-negociation', 'contract-signed', 'sent-to-production', 'won', 'lost', 'delayed') then
+  -- The retired stages (to-contact, contacted, in-work, in-negociation, contract-signed) are never entered again
+  if p_to_stage is null or p_to_stage not in ('opportunity', 'processing', 'order', 'proposal-sent', 'sent-to-production', 'won', 'lost', 'delayed') then
     raise exception 'invalid_stage' using errcode = 'PT422';
   end if;
 
@@ -821,16 +823,11 @@ begin
   if not found or v_deal.archived_at is not null then
     raise exception 'deal_not_found' using errcode = 'PT404';
   end if;
-  if not v_head and v_deal.sales_id is not null and v_deal.sales_id <> v_me then
-    raise exception 'not_your_deal' using errcode = 'PT403';
-  end if;
+  -- Every manager works with the deals of colleagues: moving a deal never changes its owner
   if p_expected_version is null or v_deal.version <> p_expected_version then
     raise exception 'deal_version_conflict' using errcode = 'PT409';
   end if;
 
-  if v_link is not null and v_link !~ '^https?://[^[:space:]]+$' then
-    raise exception 'invalid_link' using errcode = 'PT422';
-  end if;
   -- The handoff has its own command: it creates the order, keeps the materials and moves the deal
   if p_to_stage = 'sent-to-production' and v_deal.stage <> 'sent-to-production' then
     raise exception 'handoff_required' using errcode = 'PT422',
@@ -866,21 +863,13 @@ begin
   -- one move at a time per column keeps the order consistent
   perform pg_advisory_xact_lock(hashtextextended('deal_stage:' || p_to_stage, 0));
 
-  v_set_contract := p_to_stage = 'contract-signed'
-    and (v_deal.stage <> 'contract-signed' or p_contract_signed_at is not null or v_link is not null);
-
   update public.deals
     set stage = p_to_stage,
         updated_at = now(),
-        contract_signed_at = case when v_set_contract then coalesce(p_contract_signed_at, contract_signed_at, current_date) else contract_signed_at end,
-        contract_link = case when v_set_contract then coalesce(v_link, contract_link) else contract_link end,
         lost_reason = case
           when p_to_stage = 'lost' and v_deal.stage <> 'lost' then v_reason
           when v_deal.stage = 'lost' and p_to_stage <> 'lost' then null
-          else lost_reason end,
-        first_responded_at = case
-          when p_to_stage = 'contacted' and first_responded_at is null then now()
-          else first_responded_at end
+          else lost_reason end
     where id = p_deal_id;
 
   select coalesce(array_agg(d.id order by d.index nulls last, d.id), '{}'::bigint[]) into v_ids
@@ -952,7 +941,7 @@ begin
     if not v_head and v_deal.sales_id is distinct from v_me then
       raise exception 'not_your_deal' using errcode = 'PT403';
     end if;
-    if v_deal.stage not in ('opportunity', 'to-contact') then
+    if v_deal.stage not in ('opportunity', 'processing', 'to-contact') then
       raise exception 'release_not_allowed_in_stage' using errcode = 'PT422';
     end if;
     delete from public.tasks t where t.deal_id = p_deal_id and t.type = 'first-contact' and t.done_date is null;
@@ -985,7 +974,7 @@ begin
 end;
 $$;
 
-CREATE OR REPLACE FUNCTION "public"."create_manual_deal"("p_name" "text", "p_contact_id" bigint DEFAULT NULL::bigint, "p_new_contact" "jsonb" DEFAULT NULL::"jsonb", "p_company_id" bigint DEFAULT NULL::bigint, "p_description" "text" DEFAULT NULL::"text", "p_source" "text" DEFAULT 'manual'::"text", "p_received_at" timestamp with time zone DEFAULT NULL::timestamp with time zone, "p_categories" "text"[] DEFAULT NULL::"text"[], "p_amount" bigint DEFAULT NULL::bigint, "p_assign_to_me" boolean DEFAULT true, "p_request_key" "text" DEFAULT NULL::"text") RETURNS "jsonb"
+CREATE OR REPLACE FUNCTION "public"."create_manual_deal"("p_name" "text", "p_contact_id" bigint DEFAULT NULL::bigint, "p_new_contact" "jsonb" DEFAULT NULL::"jsonb", "p_company_id" bigint DEFAULT NULL::bigint, "p_description" "text" DEFAULT NULL::"text", "p_source" "text" DEFAULT 'other'::"text", "p_received_at" timestamp with time zone DEFAULT NULL::timestamp with time zone, "p_categories" "text"[] DEFAULT NULL::"text"[], "p_amount" bigint DEFAULT NULL::bigint, "p_assign_to_me" boolean DEFAULT true, "p_request_key" "text" DEFAULT NULL::"text") RETURNS "jsonb"
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO ''
     AS $$
@@ -1018,7 +1007,7 @@ begin
     return v_res;
   end if;
 
-  if p_source is null or p_source not in ('website', 'avito', 'telegram', 'whatsapp', 'phone', 'manual', 'other') then
+  if p_source is null or not exists (select 1 from public.lead_sources ls where ls.code = p_source and ls.is_active) then
     raise exception 'invalid_source' using errcode = 'PT422';
   end if;
   if v_received > now() + interval '5 minutes' then
@@ -1141,7 +1130,6 @@ CREATE OR REPLACE FUNCTION "public"."handoff_deal_to_production"("p_deal_id" big
 declare
   v_uid uuid := (select auth.uid());
   v_me bigint := private.current_sales_id();
-  v_head boolean;
   v_deal public.deals%rowtype;
   v_order public.production_orders%rowtype;
   v_res jsonb;
@@ -1160,7 +1148,6 @@ begin
   if not private.is_sales_staff() then
     raise exception 'forbidden' using errcode = 'PT403';
   end if;
-  v_head := private.is_sales_head();
 
   v_res := private.command_replay(v_uid, p_request_key, 'handoff_deal_to_production');
   if v_res is not null then
@@ -1170,9 +1157,6 @@ begin
   select * into v_deal from public.deals where id = p_deal_id for update;
   if not found or v_deal.archived_at is not null then
     raise exception 'deal_not_found' using errcode = 'PT404';
-  end if;
-  if not v_head and v_deal.sales_id is distinct from v_me then
-    raise exception 'not_your_deal' using errcode = 'PT403';
   end if;
 
   -- A second request, or a second window, gets the same order
@@ -1186,9 +1170,9 @@ begin
   if p_expected_version is null or v_deal.version <> p_expected_version then
     raise exception 'deal_version_conflict' using errcode = 'PT409';
   end if;
-  if v_deal.stage <> 'contract-signed' then
-    raise exception 'contract_required' using errcode = 'PT422',
-      hint = 'Move the deal to "contract signed" before the handoff';
+  if v_deal.stage not in ('order', 'contract-signed') then
+    raise exception 'order_stage_required' using errcode = 'PT422',
+      hint = 'Move the deal to "order" before the handoff';
   end if;
   if v_name is null then
     raise exception 'product_name_required' using errcode = 'PT422';
@@ -1384,7 +1368,6 @@ CREATE OR REPLACE FUNCTION "public"."register_payment"("p_deal_id" bigint, "p_ki
 declare
   v_uid uuid := (select auth.uid());
   v_me bigint := private.current_sales_id();
-  v_head boolean;
   v_deal public.deals%rowtype;
   v_res jsonb;
   v_paid bigint;
@@ -1397,7 +1380,6 @@ begin
   if not private.is_sales_staff() then
     raise exception 'forbidden' using errcode = 'PT403';
   end if;
-  v_head := private.is_sales_head();
 
   v_res := private.command_replay(v_uid, p_request_key, 'register_payment');
   if v_res is not null then
@@ -1418,9 +1400,6 @@ begin
   select * into v_deal from public.deals where id = p_deal_id for update;
   if not found or v_deal.archived_at is not null then
     raise exception 'deal_not_found' using errcode = 'PT404';
-  end if;
-  if not v_head and v_deal.sales_id is distinct from v_me then
-    raise exception 'not_your_deal' using errcode = 'PT403';
   end if;
 
   select coalesce(sum(case when dp.kind = 'refund' then - dp.amount else dp.amount end), 0)
@@ -1463,4 +1442,324 @@ CREATE OR REPLACE FUNCTION "public"."deals_finance_summary"("p_stages" "text"[] 
     and (p_sales_id is null or f.sales_id = p_sales_id)
     and (p_closing_from is null or f.expected_closing_date >= p_closing_from)
     and (p_closing_to is null or f.expected_closing_date <= p_closing_to)
+$$;
+
+-- Who may edit the lead sources and the partner links: administrators and the sales head
+CREATE OR REPLACE FUNCTION "private"."can_manage_intake"() RETURNS boolean
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+  select (select public.is_admin()) or private.is_sales_head()
+$$;
+
+-- A manager clarifies the source of a deal; the change is kept in the history of the deal
+CREATE OR REPLACE FUNCTION "public"."set_deal_source"("p_deal_id" bigint, "p_expected_version" integer, "p_source" "text", "p_request_key" "text" DEFAULT NULL::"text") RETURNS "jsonb"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_uid uuid := (select auth.uid());
+  v_me bigint := private.current_sales_id();
+  v_deal public.deals%rowtype;
+  v_res jsonb;
+  v_old_label text;
+  v_new_label text;
+begin
+  if v_uid is null or v_me is null then
+    raise exception 'not_authenticated' using errcode = 'PT401';
+  end if;
+  if not private.is_sales_staff() then
+    raise exception 'forbidden' using errcode = 'PT403';
+  end if;
+
+  v_res := private.command_replay(v_uid, p_request_key, 'set_deal_source');
+  if v_res is not null then
+    return v_res;
+  end if;
+
+  select * into v_deal from public.deals where id = p_deal_id for update;
+  if not found or v_deal.archived_at is not null then
+    raise exception 'deal_not_found' using errcode = 'PT404';
+  end if;
+  if p_expected_version is null or v_deal.version <> p_expected_version then
+    raise exception 'deal_version_conflict' using errcode = 'PT409';
+  end if;
+
+  select ls.label into v_new_label from public.lead_sources ls where ls.code = p_source and ls.is_active;
+  if v_new_label is null then
+    raise exception 'invalid_source' using errcode = 'PT422';
+  end if;
+
+  if v_deal.source <> p_source then
+    select ls.label into v_old_label from public.lead_sources ls where ls.code = v_deal.source;
+    update public.deals set source = p_source, updated_at = now() where id = p_deal_id;
+    perform private.log_deal_event(p_deal_id, 'source', v_deal.stage, v_deal.stage, v_deal.sales_id, v_deal.sales_id, v_me,
+      'Источник: ' || coalesce(v_old_label, v_deal.source) || ' → ' || v_new_label);
+  end if;
+
+  select * into v_deal from public.deals where id = p_deal_id;
+  return private.command_store(v_uid, p_request_key, 'set_deal_source', p_deal_id, jsonb_build_object(
+    'deal_id', v_deal.id, 'version', v_deal.version, 'source', v_deal.source, 'replayed', false));
+end;
+$$;
+
+-- The manager records how the call went and what was agreed, and may put a call back task on the calendar
+CREATE OR REPLACE FUNCTION "public"."log_call_result"("p_deal_id" bigint, "p_result" "text", "p_agreements" "text" DEFAULT NULL::"text", "p_recall_at" timestamp with time zone DEFAULT NULL::timestamp with time zone, "p_request_key" "text" DEFAULT NULL::"text") RETURNS "jsonb"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_uid uuid := (select auth.uid());
+  v_me bigint := private.current_sales_id();
+  v_deal public.deals%rowtype;
+  v_res jsonb;
+  v_result text := nullif(btrim(coalesce(p_result, '')), '');
+  v_agreements text := nullif(btrim(coalesce(p_agreements, '')), '');
+  v_note_id bigint;
+  v_task_id bigint;
+  v_text text;
+begin
+  if v_uid is null or v_me is null then
+    raise exception 'not_authenticated' using errcode = 'PT401';
+  end if;
+  if not private.is_sales_staff() then
+    raise exception 'forbidden' using errcode = 'PT403';
+  end if;
+  if v_result is null then
+    raise exception 'result_required' using errcode = 'PT422';
+  end if;
+  if length(v_result) > 4000 or length(coalesce(v_agreements, '')) > 4000 then
+    raise exception 'text_too_long' using errcode = 'PT422';
+  end if;
+  if p_recall_at is not null and p_recall_at < now() - interval '5 minutes' then
+    raise exception 'recall_in_past' using errcode = 'PT422';
+  end if;
+
+  v_res := private.command_replay(v_uid, p_request_key, 'log_call_result');
+  if v_res is not null then
+    return v_res;
+  end if;
+
+  select * into v_deal from public.deals where id = p_deal_id for update;
+  if not found or v_deal.archived_at is not null then
+    raise exception 'deal_not_found' using errcode = 'PT404';
+  end if;
+  if v_deal.sales_id is null then
+    raise exception 'claim_required' using errcode = 'PT422', hint = 'Take the deal with claim_deal first';
+  end if;
+  if v_deal.contact_ids is null or array_length(v_deal.contact_ids, 1) is null then
+    raise exception 'contact_required' using errcode = 'PT422';
+  end if;
+
+  v_text := 'Результат звонка: ' || v_result
+    || case when v_agreements is null then '' else E'\nДоговорённости: ' || v_agreements end;
+  insert into public.deal_notes (deal_id, type, text, sales_id, date)
+  values (p_deal_id, 'call', v_text, v_me, now())
+  returning id into v_note_id;
+
+  if p_recall_at is not null then
+    insert into public.tasks (contact_id, deal_id, type, text, due_date, sales_id)
+    values (v_deal.contact_ids[1], p_deal_id, 'call', 'Перезвонить по заявке «' || v_deal.name || '»', p_recall_at, v_me)
+    returning id into v_task_id;
+  end if;
+
+  -- the first call closes the automatic first contact task
+  update public.tasks t set done_date = now()
+    where t.deal_id = p_deal_id and t.type = 'first-contact' and t.done_date is null;
+  update public.deals set first_responded_at = now(), updated_at = now()
+    where id = p_deal_id and first_responded_at is null;
+
+  perform private.log_deal_event(p_deal_id, 'call', v_deal.stage, v_deal.stage, v_deal.sales_id, v_deal.sales_id, v_me,
+    left(v_result, 200));
+
+  select * into v_deal from public.deals where id = p_deal_id;
+  return private.command_store(v_uid, p_request_key, 'log_call_result', p_deal_id, jsonb_build_object(
+    'deal_id', v_deal.id, 'version', v_deal.version, 'note_id', v_note_id, 'task_id', v_task_id, 'replayed', false));
+end;
+$$;
+
+-- Reads the way in for the intake function (service role only): the kind and the signing secret
+CREATE OR REPLACE FUNCTION "public"."get_intake_partner"("p_code" "text") RETURNS "jsonb"
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+  select jsonb_build_object('id', p.id, 'kind', p.kind, 'is_active', p.is_active, 'secret', s.secret)
+  from public.lead_partners p
+  left join private.lead_partner_secrets s on s.partner_id = p.id
+  where p.code = p_code
+$$;
+
+-- Accepts a lead from a partner form or the website (service role only; the intake function checks the request)
+CREATE OR REPLACE FUNCTION "public"."intake_lead"("p_partner_code" "text", "p_submission_id" "text", "p_name" "text" DEFAULT NULL::"text", "p_contact" "text" DEFAULT NULL::"text", "p_description" "text" DEFAULT NULL::"text", "p_utm" "jsonb" DEFAULT NULL::"jsonb") RETURNS "jsonb"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_partner public.lead_partners%rowtype;
+  v_key text := btrim(coalesce(p_submission_id, ''));
+  v_name text := nullif(btrim(coalesce(p_name, '')), '');
+  v_contact text := nullif(btrim(coalesce(p_contact, '')), '');
+  v_desc text := nullif(btrim(coalesce(p_description, '')), '');
+  v_utm jsonb;
+  v_deal_id bigint;
+  v_contact_id bigint;
+  v_email jsonb := '[]'::jsonb;
+  v_phone jsonb := '[]'::jsonb;
+  v_other text;
+  v_title text;
+  v_k text;
+begin
+  select * into v_partner from public.lead_partners p where p.code = p_partner_code and p.is_active;
+  if not found then
+    raise exception 'partner_not_found' using errcode = 'PT404';
+  end if;
+  if length(v_key) not between 8 and 100 then
+    raise exception 'invalid_submission_id' using errcode = 'PT422';
+  end if;
+  if v_contact is null then
+    raise exception 'contact_required' using errcode = 'PT422';
+  end if;
+  if length(coalesce(v_name, '')) > 120 or length(v_contact) > 200 or length(coalesce(v_desc, '')) > 4000 then
+    raise exception 'text_too_long' using errcode = 'PT422';
+  end if;
+
+  -- only the usual UTM labels are kept, as short strings
+  if p_utm is not null and jsonb_typeof(p_utm) = 'object' then
+    v_utm := '{}'::jsonb;
+    foreach v_k in array array['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content'] loop
+      if jsonb_typeof(p_utm -> v_k) = 'string' and length(p_utm ->> v_k) between 1 and 200 then
+        v_utm := v_utm || jsonb_build_object(v_k, p_utm ->> v_k);
+      end if;
+    end loop;
+    if v_utm = '{}'::jsonb then
+      v_utm := null;
+    end if;
+  end if;
+
+  -- a repeated submission with the same id is the same lead
+  perform pg_advisory_xact_lock(hashtextextended('intake:' || v_partner.id || ':' || v_key, 0));
+  select d.id into v_deal_id from public.deals d where d.partner_id = v_partner.id and d.intake_key = v_key;
+  if found then
+    return jsonb_build_object('deal_id', v_deal_id, 'duplicate', true);
+  end if;
+
+  if v_contact ~ '^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$' then
+    v_email := jsonb_build_array(jsonb_build_object('email', lower(v_contact), 'type', 'Work'));
+  elsif v_contact ~ '^[0-9+()[:space:].-]{6,}$' then
+    v_phone := jsonb_build_array(jsonb_build_object('number', v_contact, 'type', 'Work'));
+  else
+    v_other := v_contact;
+  end if;
+
+  insert into public.contacts (first_name, last_name, email_jsonb, phone_jsonb, background, first_seen, last_seen, status)
+  values (coalesce(v_name, 'Клиент'), '', v_email, v_phone,
+    case when v_other is null then null else 'Контакт из формы: ' || v_other end, now(), now(), 'cold')
+  returning id into v_contact_id;
+
+  v_title := case
+    when v_desc is null then 'Заявка от ' || coalesce(v_name, v_contact)
+    when length(v_desc) > 60 then left(v_desc, 57) || '...'
+    else v_desc end;
+
+  perform set_config('crm.keep_unassigned', 'on', true);
+  insert into public.deals (name, contact_ids, stage, description, source, received_at, first_response_due_at, sales_id, index, partner_id, intake_key, utm)
+  values (
+    v_title,
+    array[v_contact_id],
+    'opportunity',
+    v_desc,
+    v_partner.source,
+    now(),
+    private.compute_first_response_due(now()),
+    null,
+    (select coalesce(max(d.index), -1) + 1 from public.deals d where d.stage = 'opportunity' and d.archived_at is null),
+    v_partner.id,
+    v_key,
+    v_utm
+  )
+  returning id into v_deal_id;
+  perform set_config('crm.keep_unassigned', 'off', true);
+
+  perform private.log_deal_event(v_deal_id, 'created', null, 'opportunity', null, null, null, 'Заявка из формы: ' || v_partner.name);
+
+  return jsonb_build_object('deal_id', v_deal_id, 'contact_id', v_contact_id, 'duplicate', false);
+end;
+$$;
+
+-- Creates or edits a partner link / website connection. The signing secret of a website is shown once, on creation.
+CREATE OR REPLACE FUNCTION "public"."save_lead_partner"("p_id" bigint, "p_name" "text", "p_kind" "text", "p_source" "text", "p_is_active" boolean DEFAULT true) RETURNS "jsonb"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_partner public.lead_partners%rowtype;
+  v_secret text;
+begin
+  if not private.can_manage_intake() then
+    raise exception 'forbidden' using errcode = 'PT403';
+  end if;
+  if not exists (select 1 from public.lead_sources ls where ls.code = p_source) then
+    raise exception 'invalid_source' using errcode = 'PT422';
+  end if;
+
+  if p_id is null then
+    if p_kind is null or p_kind not in ('partner', 'website') then
+      raise exception 'invalid_kind' using errcode = 'PT422';
+    end if;
+    insert into public.lead_partners (name, kind, source, is_active)
+    values (btrim(coalesce(p_name, '')), p_kind, p_source, coalesce(p_is_active, true))
+    returning * into v_partner;
+    if v_partner.kind = 'website' then
+      v_secret := encode(extensions.gen_random_bytes(24), 'hex');
+      insert into private.lead_partner_secrets (partner_id, secret) values (v_partner.id, v_secret);
+    end if;
+  else
+    update public.lead_partners
+      set name = btrim(coalesce(p_name, '')), source = p_source, is_active = coalesce(p_is_active, true)
+      where id = p_id
+      returning * into v_partner;
+    if not found then
+      raise exception 'partner_not_found' using errcode = 'PT404';
+    end if;
+  end if;
+
+  return jsonb_build_object('id', v_partner.id, 'code', v_partner.code, 'kind', v_partner.kind, 'secret', v_secret);
+end;
+$$;
+
+-- Replaces the signing secret of a website connection and shows the new one once
+CREATE OR REPLACE FUNCTION "public"."rotate_lead_partner_secret"("p_id" bigint) RETURNS "text"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+declare
+  v_secret text := encode(extensions.gen_random_bytes(24), 'hex');
+begin
+  if not private.can_manage_intake() then
+    raise exception 'forbidden' using errcode = 'PT403';
+  end if;
+  if not exists (select 1 from public.lead_partners p where p.id = p_id and p.kind = 'website') then
+    raise exception 'partner_not_found' using errcode = 'PT404';
+  end if;
+  insert into private.lead_partner_secrets (partner_id, secret) values (p_id, v_secret)
+    on conflict (partner_id) do update set secret = excluded.secret;
+  return v_secret;
+end;
+$$;
+
+-- Creates or edits a source of leads: the code is a system code, the label, the order and the activity are editable
+CREATE OR REPLACE FUNCTION "public"."save_lead_source"("p_code" "text", "p_label" "text", "p_is_active" boolean DEFAULT true, "p_position" integer DEFAULT 0) RETURNS "jsonb"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+begin
+  if not private.can_manage_intake() then
+    raise exception 'forbidden' using errcode = 'PT403';
+  end if;
+  insert into public.lead_sources (code, label, is_active, position)
+  values (p_code, btrim(coalesce(p_label, '')), coalesce(p_is_active, true), coalesce(p_position, 0))
+  on conflict (code) do update
+    set label = excluded.label, is_active = excluded.is_active, position = excluded.position;
+  return jsonb_build_object('code', p_code);
+end;
 $$;
