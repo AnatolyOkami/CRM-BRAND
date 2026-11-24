@@ -28,7 +28,7 @@ node scripts/renderRuntimeConfig.ts dist/config.js
 echo "== Edge functions"
 functions_dir="$SUPABASE_DIR/volumes/functions"
 mkdir -p "$functions_dir"
-for name in _shared users update_password merge_contacts delete_note_attachments; do
+for name in _shared users update_password merge_contacts delete_note_attachments lead_intake; do
   rm -rf "${functions_dir:?}/$name"
   cp -r "supabase/functions/$name" "$functions_dir/$name"
 done
