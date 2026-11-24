@@ -23,16 +23,13 @@ import {
 before(setupUsers);
 
 describe("roles", () => {
-  it("the first account is the administrator and leads sales", async () => {
+  it("the first account is the administrator and the owner", async () => {
     const roles = await rest(
       users.admin.token,
       "GET",
       `/rest/v1/staff_roles?sales_id=eq.${users.admin.salesId}`,
     );
-    assert.deepEqual(roles.body.map((r) => r.role).sort(), [
-      "manager",
-      "sales_head",
-    ]);
+    assert.deepEqual(roles.body.map((r) => r.role).sort(), ["owner"]);
   });
 
   it("only an administrator can change roles", async () => {

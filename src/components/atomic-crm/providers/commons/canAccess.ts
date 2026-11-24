@@ -9,9 +9,21 @@ type CanAccessParams<
 
 /** Working roles, mirrored from public.staff_roles. The database enforces them, this only shapes the UI. */
 export type WorkingRole =
-  "manager" | "sales_head" | "production_head" | "workshop" | "fulfillment";
+  | "owner"
+  | "office_head"
+  | "manager"
+  | "designer"
+  | "shop_typography"
+  | "shop_wide_format"
+  | "shop_signs"
+  | "installer";
 
-const SALES_ROLES: WorkingRole[] = ["manager", "sales_head"];
+/** The roles of the workshops, one per workshop. */
+export const SHOP_ROLES: WorkingRole[] = [
+  "shop_typography",
+  "shop_wide_format",
+  "shop_signs",
+];
 
 // Resources that hold sales data: nobody without a sales role has anything to do with them
 const SALES_RESOURCES = new Set([
@@ -26,15 +38,34 @@ const SALES_RESOURCES = new Set([
   "activity_log",
 ]);
 
+// The designer reads the deals of the design stages, with their notes and history
+const DESIGNER_RESOURCES = new Set([
+  "deals",
+  "deal_notes",
+  "deal_stage_history",
+]);
+
+/** The owner holds every role. */
+const holds = (roles: WorkingRole[], role: WorkingRole) =>
+  roles.includes("owner") || roles.includes(role);
+
 export const hasProductionRole = (roles?: WorkingRole[]) =>
   roles == null ||
-  roles.some((role) => role === "workshop" || role === "production_head");
+  holds(roles, "office_head") ||
+  SHOP_ROLES.some((role) => holds(roles, role));
 
 export const hasSalesRole = (roles?: WorkingRole[]) =>
-  roles == null || roles.some((role) => SALES_ROLES.includes(role));
+  roles == null || holds(roles, "manager") || holds(roles, "office_head");
 
+export const hasDesignerRole = (roles?: WorkingRole[]) =>
+  roles == null || holds(roles, "designer");
+
+export const hasInstallerRole = (roles?: WorkingRole[]) =>
+  roles == null || holds(roles, "installer");
+
+/** The office head and the owner: all deals and orders, the sources, the partners. */
 export const isSalesHead = (roles?: WorkingRole[]) =>
-  roles?.includes("sales_head") ?? false;
+  roles != null && holds(roles, "office_head");
 
 export const canAccess = <
   RecordType extends Record<string, any> = Record<string, any>,
@@ -44,7 +75,11 @@ export const canAccess = <
   // undefined means the roles are not tracked (demo mode): everybody may sell
   roles?: WorkingRole[],
 ) => {
-  if (SALES_RESOURCES.has(params.resource) && !hasSalesRole(roles)) {
+  if (
+    SALES_RESOURCES.has(params.resource) &&
+    !hasSalesRole(roles) &&
+    !(DESIGNER_RESOURCES.has(params.resource) && hasDesignerRole(roles))
+  ) {
     return false;
   }
 

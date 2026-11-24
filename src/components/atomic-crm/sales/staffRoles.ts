@@ -1,9 +1,12 @@
 import type { StaffRole } from "../types";
 
 export const STAFF_ROLES: StaffRole[] = [
+  "owner",
+  "office_head",
   "manager",
-  "sales_head",
-  "production_head",
-  "workshop",
-  "fulfillment",
+  "designer",
+  "shop_typography",
+  "shop_wide_format",
+  "shop_signs",
+  "installer",
 ];

@@ -2,6 +2,7 @@ import { useGetIdentity, useTranslate } from "ra-core";
 import { Navigate } from "react-router";
 
 import {
+  hasDesignerRole,
   hasProductionRole,
   hasSalesRole,
 } from "../providers/commons/canAccess";
@@ -13,6 +14,9 @@ export const Landing = () => {
 
   if (isPending) return null;
   if (hasSalesRole(identity?.roles)) {
+    return <Navigate to="/deals" replace />;
+  }
+  if (hasDesignerRole(identity?.roles)) {
     return <Navigate to="/deals" replace />;
   }
   if (hasProductionRole(identity?.roles)) {

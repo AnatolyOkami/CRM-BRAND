@@ -199,7 +199,7 @@ describe("DataImportButton", () => {
         name: "New website",
         company: "Acme",
         categories: "Баннер; Вывеска",
-        stage: "КП отправлено",
+        stage: "Заказ",
         amount: "12000",
         expected_closing_date: "2026-09-30",
       },
@@ -220,7 +220,7 @@ describe("DataImportButton", () => {
       categories: ["banner", "signboard"],
       company_id: companies[0].id,
       name: "New website",
-      stage: "proposal-sent",
+      stage: "order",
     });
     expect(deals[0].expected_closing_date).toBe("2026-09-30");
     // Both rows name the same company, which is created once and shared
@@ -247,9 +247,9 @@ describe("DataImportButton", () => {
     const { dataProvider, screen } = await renderImport(
       useDealImport,
       [
-        { name: "First", stage: "Новые заявки" },
-        { name: "Second", stage: "Новые заявки" },
-        { name: "Other column", stage: "КП отправлено" },
+        { name: "First", stage: "Новая" },
+        { name: "Second", stage: "Новая" },
+        { name: "Other column", stage: "Заказ" },
       ],
       {
         deals: [
@@ -271,7 +271,7 @@ describe("DataImportButton", () => {
       { name: "Already there", stage: "opportunity", index: 0 },
       { name: "First", stage: "opportunity", index: 1 },
       { name: "Second", stage: "opportunity", index: 2 },
-      { name: "Other column", stage: "proposal-sent", index: 0 },
+      { name: "Other column", stage: "order", index: 0 },
     ]);
   });
 
@@ -296,7 +296,7 @@ describe("DataImportButton", () => {
       .upload(
         csvFile("deals.csv", [
           "name,company,stage,amount,expected_closing_date",
-          "New website,Acme,КП отправлено,4500.50,2026-09-30",
+          "New website,Acme,Заказ,4500.50,2026-09-30",
         ]),
       );
     await screen.getByRole("button", { name: "Start import" }).click();
@@ -312,7 +312,7 @@ describe("DataImportButton", () => {
       // A fractional amount would make the bigint column reject the row
       amount: 4501,
       sales_id: DEFAULT_USER.id,
-      stage: "proposal-sent",
+      stage: "order",
     });
     expect(deals[0].expected_closing_date).toBe("2026-09-30");
   });

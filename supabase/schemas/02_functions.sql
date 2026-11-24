@@ -271,12 +271,12 @@ begin
     case when sales_count > 0 then FALSE else TRUE end
   );
 
-  -- The very first account bootstraps the company: it gets the sales roles.
+  -- The very first account bootstraps the company: it becomes the owner, who holds every role.
   -- Everybody else has no business role until an administrator assigns one.
   if sales_count = 0 then
     insert into public.staff_roles (sales_id, role)
     select s.id, r.role
-    from public.sales s, (values ('manager'), ('sales_head')) as r(role)
+    from public.sales s, (values ('owner')) as r(role)
     where s.user_id = new.id;
   end if;
   return new;
@@ -524,7 +524,7 @@ CREATE OR REPLACE FUNCTION "private"."has_role"("p_role" "text") RETURNS boolean
     select 1
     from public.staff_roles r
     join public.sales s on s.id = r.sales_id
-    where s.user_id = (select auth.uid()) and not s.disabled and r.role = p_role
+    where s.user_id = (select auth.uid()) and not s.disabled and r.role in (p_role, 'owner')
   )
 $$;
 
@@ -532,14 +532,28 @@ CREATE OR REPLACE FUNCTION "private"."is_sales_head"() RETURNS boolean
     LANGUAGE "sql" STABLE SECURITY DEFINER
     SET "search_path" TO ''
     AS $$
-  select private.has_role('sales_head')
+  select private.has_role('office_head')
 $$;
 
 CREATE OR REPLACE FUNCTION "private"."is_sales_staff"() RETURNS boolean
     LANGUAGE "sql" STABLE SECURITY DEFINER
     SET "search_path" TO ''
     AS $$
-  select private.has_role('manager') or private.has_role('sales_head')
+  select private.has_role('manager') or private.has_role('office_head')
+$$;
+
+CREATE OR REPLACE FUNCTION "private"."is_designer"() RETURNS boolean
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+  select private.has_role('designer')
+$$;
+
+CREATE OR REPLACE FUNCTION "private"."is_installer"() RETURNS boolean
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+  select private.has_role('installer')
 $$;
 
 -- Moment of the first reply deadline: first_response_minutes of working time after p_received
@@ -718,6 +732,7 @@ begin
      or new.received_at is distinct from old.received_at
      or new.first_response_due_at is distinct from old.first_response_due_at
      or new.first_responded_at is distinct from old.first_responded_at
+     or new.sent_to_production_at is distinct from old.sent_to_production_at
      or new.partner_id is distinct from old.partner_id
      or new.intake_key is distinct from old.intake_key
      or new.utm is distinct from old.utm
@@ -809,8 +824,8 @@ begin
   end if;
   v_head := private.is_sales_head();
 
-  -- The retired stages (proposal-sent, delayed, to-contact, contacted, in-work, in-negociation, contract-signed) are never entered again
-  if p_to_stage is null or p_to_stage not in ('opportunity', 'processing', 'order', 'design-task', 'design-in-progress', 'design-ready', 'approval', 'approved', 'sent-to-production', 'won', 'lost') then
+  -- The retired stages (sent-to-production, proposal-sent, delayed, to-contact, contacted, in-work, in-negociation, contract-signed) are never entered again
+  if p_to_stage is null or p_to_stage not in ('opportunity', 'processing', 'order', 'design-task', 'design-in-progress', 'design-ready', 'approval', 'approved', 'won', 'lost') then
     raise exception 'invalid_stage' using errcode = 'PT422';
   end if;
 
@@ -828,18 +843,11 @@ begin
     raise exception 'deal_version_conflict' using errcode = 'PT409';
   end if;
 
-  -- The handoff has its own command: it creates the order, keeps the materials and moves the deal
-  if p_to_stage = 'sent-to-production' and v_deal.stage <> 'sent-to-production' then
-    raise exception 'handoff_required' using errcode = 'PT422',
-      hint = 'A deal is sent to production only through handoff_deal_to_production';
-  end if;
-  if v_deal.stage = 'sent-to-production' and p_to_stage not in ('sent-to-production', 'won') then
-    raise exception 'in_production_locked' using errcode = 'PT422';
-  end if;
-  -- A deal is won when the workshop has finished its order
+  -- The handoff to production has its own command and does not move the card.
+  -- A deal is finished when the workshop has finished its order
   if p_to_stage = 'won' and v_deal.stage <> 'won' then
     select o.stage into v_order_stage from public.production_orders o where o.deal_id = p_deal_id;
-    if v_deal.stage <> 'sent-to-production' or v_order_stage is distinct from 'ready' then
+    if v_order_stage is distinct from 'ready' then
       raise exception 'won_requires_ready_order' using errcode = 'PT422',
         hint = 'A deal becomes won after its production order is ready';
     end if;
@@ -953,7 +961,7 @@ begin
     end if;
     if not exists (
       select 1 from public.sales s join public.staff_roles r on r.sales_id = s.id
-      where s.id = p_to_sales_id and not s.disabled and r.role in ('manager', 'sales_head')
+      where s.id = p_to_sales_id and not s.disabled and r.role in ('manager', 'office_head', 'owner')
     ) then
       raise exception 'invalid_assignee' using errcode = 'PT422';
     end if;
@@ -1084,7 +1092,7 @@ CREATE OR REPLACE FUNCTION "public"."set_staff_roles"("p_sales_id" bigint, "p_ro
     SET "search_path" TO ''
     AS $$
 begin
-  if not public.is_admin() then
+  if not (public.is_admin() or private.has_role('owner')) then
     raise exception 'forbidden' using errcode = 'PT403';
   end if;
   if not exists (select 1 from public.sales s where s.id = p_sales_id) then
@@ -1092,7 +1100,7 @@ begin
   end if;
   if exists (
     select 1 from unnest(coalesce(p_roles, '{}'::text[])) r
-    where r not in ('manager', 'sales_head', 'production_head', 'workshop', 'fulfillment')
+    where r not in ('owner', 'office_head', 'manager', 'designer', 'shop_typography', 'shop_wide_format', 'shop_signs', 'installer')
   ) then
     raise exception 'invalid_role' using errcode = 'PT422';
   end if;
@@ -1112,7 +1120,7 @@ CREATE OR REPLACE FUNCTION "private"."is_production_staff"() RETURNS boolean
     LANGUAGE "sql" STABLE SECURITY DEFINER
     SET "search_path" TO ''
     AS $$
-  select private.has_role('workshop') or private.has_role('production_head')
+  select private.has_role('shop_typography') or private.has_role('shop_wide_format') or private.has_role('shop_signs')
 $$;
 
 -- Deal id encoded as the first folder of an order file path, e.g. "12/3f2a-banner.pdf"
@@ -1170,9 +1178,9 @@ begin
   if p_expected_version is null or v_deal.version <> p_expected_version then
     raise exception 'deal_version_conflict' using errcode = 'PT409';
   end if;
-  if v_deal.stage not in ('order', 'approval', 'approved', 'contract-signed') then
+  if v_deal.stage not in ('order', 'design-task', 'design-in-progress', 'design-ready', 'approval', 'approved', 'contract-signed') then
     raise exception 'order_stage_required' using errcode = 'PT422',
-      hint = 'Move the deal to "order", "approval" or "approved" before the handoff';
+      hint = 'Move the deal to "order" before the handoff';
   end if;
   if v_name is null then
     raise exception 'product_name_required' using errcode = 'PT422';
@@ -1218,12 +1226,9 @@ begin
   insert into public.order_stage_history (order_id, event, to_stage, changed_by)
   values (v_order.id, 'created', 'accepted', v_me);
 
-  update public.deals
-    set stage = 'sent-to-production',
-        updated_at = now(),
-        index = (select coalesce(max(d.index), -1) + 1 from public.deals d where d.stage = 'sent-to-production' and d.archived_at is null)
-    where id = p_deal_id;
-  perform private.log_deal_event(p_deal_id, 'stage', v_deal.stage, 'sent-to-production', v_deal.sales_id, v_deal.sales_id, v_me, null);
+  -- The card stays where it is: it only gets the mark "sent to production"
+  update public.deals set sent_to_production_at = now(), updated_at = now() where id = p_deal_id;
+  perform private.log_deal_event(p_deal_id, 'handoff', v_deal.stage, v_deal.stage, v_deal.sales_id, v_deal.sales_id, v_me, v_name);
 
   select * into v_deal from public.deals where id = p_deal_id;
   return private.command_store(v_uid, p_request_key, 'handoff_deal_to_production', p_deal_id, jsonb_build_object(

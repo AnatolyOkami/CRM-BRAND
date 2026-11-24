@@ -4,8 +4,13 @@ import type {
   DashboardComponent,
   LayoutComponent,
 } from "ra-core";
-import { CustomRoutes, localStorageStore, Resource } from "ra-core";
-import { useEffect, useMemo } from "react";
+import {
+  CustomRoutes,
+  localStorageStore,
+  Resource,
+  ResourceContextProvider,
+} from "ra-core";
+import { Suspense, useEffect, useMemo } from "react";
 import { Route } from "react-router";
 import { QueryClient } from "@tanstack/react-query";
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
@@ -347,6 +352,17 @@ const MobileAdmin = (
             element={<SettingsPageMobile />}
           />
           <Route path={ChangelogPage.path} element={<ChangelogPage />} />
+          {/* The single board on a phone: a screen, not a registered resource, so the import of deals stays on the desktop */}
+          <Route
+            path="/deals/*"
+            element={
+              <Suspense fallback={null}>
+                <ResourceContextProvider value="deals">
+                  <deals.list />
+                </ResourceContextProvider>
+              </Suspense>
+            }
+          />
         </CustomRoutes>
         <Resource
           name="contacts"

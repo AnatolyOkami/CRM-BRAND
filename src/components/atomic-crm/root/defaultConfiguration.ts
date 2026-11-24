@@ -30,7 +30,8 @@ export const defaultCompanySectors = [
  * Stage codes are system codes shared with the database (check constraint on deals.stage) and the
  * deal commands: never rename them. Only the labels may be edited. Leads enter "opportunity" ("New"),
  * a manager takes them to "processing" and agrees the order with the customer ("order"); the design
- * stages and the approval follow, then the production and the end of the order.
+ * stages and the approval follow, then the end of the order. The workshops and the installation have
+ * their own cards: sending to production marks the deal and does not move it.
  */
 export const defaultDealStages = [
   { value: "opportunity", label: "Новая" },
@@ -41,7 +42,6 @@ export const defaultDealStages = [
   { value: "design-ready", label: "Макет готов" },
   { value: "approval", label: "Согласование" },
   { value: "approved", label: "Согласован" },
-  { value: "sent-to-production", label: "Отправлено на производство" },
   { value: "won", label: "Заказ завершён" },
   { value: "lost", label: "Отказ" },
 ];
@@ -51,6 +51,10 @@ export const defaultDealStages = [
  * but no deal can enter them again. "contract-signed" still has a column while old deals wait in it.
  */
 export const retiredDealStages = [
+  {
+    value: "sent-to-production",
+    label: "Отправлено на производство (старый этап)",
+  },
   { value: "proposal-sent", label: "КП отправлено (старый этап)" },
   { value: "delayed", label: "Отложена (старый этап)" },
   { value: "to-contact", label: "Связаться (старый этап)" },

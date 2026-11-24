@@ -98,10 +98,7 @@ export const DealColumn = ({
       sort: { field: "id", order: "ASC" },
       filter: { "deal_id@in": `(${dealIds.join(",")})` },
     },
-    {
-      enabled:
-        ["sent-to-production", "won"].includes(stage) && dealIds.length > 0,
-    },
+    { enabled: dealIds.length > 0 },
   );
   const orderByDeal = useMemo(
     () => new Map((orders ?? []).map((order) => [order.deal_id, order])),

@@ -14,6 +14,7 @@ import type { ComponentType } from "react";
 import { Link, matchPath, useLocation } from "react-router";
 
 import {
+  hasDesignerRole,
   hasProductionRole,
   hasSalesRole,
   isSalesHead,
@@ -70,6 +71,8 @@ export const SideMenu = () => {
   const location = useLocation();
   const translate = useTranslate();
   const showSales = hasSalesRole(identity?.roles);
+  // A designer works on the board too, with the design part of it
+  const showDesign = identity?.roles != null && hasDesignerRole(identity.roles);
   // Without tracked roles (demo mode) there is no workshop
   const showProduction =
     identity?.roles != null && hasProductionRole(identity.roles);
@@ -91,6 +94,12 @@ export const SideMenu = () => {
         <span className="text-base font-semibold leading-tight">{title}</span>
       </Link>
       <nav className="flex flex-col gap-1 px-2 pb-4">
+        {!showSales && showDesign && (
+          <SideMenuLink
+            item={SALES_ITEMS[1]}
+            active={!!matchPath(SALES_ITEMS[1].match, location.pathname)}
+          />
+        )}
         {showSales &&
           SALES_ITEMS.map((item) => (
             <SideMenuLink

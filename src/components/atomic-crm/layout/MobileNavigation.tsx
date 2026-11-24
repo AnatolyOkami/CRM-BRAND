@@ -8,6 +8,7 @@ import {
 import { cn } from "@/lib/utils";
 import {
   Home,
+  KanbanSquare,
   ListTodo,
   Plus,
   Settings,
@@ -82,6 +83,12 @@ export const MobileNavigation = () => {
             Icon={ListTodo}
             label={translate("resources.tasks.name", { smart_count: 2 })}
             isActive={currentPath === "/tasks"}
+          />
+          <NavigationButton
+            href="/deals"
+            Icon={KanbanSquare}
+            label={translate("crm.menu.sales")}
+            isActive={currentPath === "/deals"}
           />
           <SettingsButton />
         </>

@@ -140,6 +140,8 @@ export type Deal = {
   // Contracts are no longer a step of the process; the data of old deals stays readable
   contract_signed_at?: string | null;
   contract_link?: string | null;
+  // The mark of the card after the first sending to production (the card does not move)
+  sent_to_production_at?: string | null;
   // Leads that came through a partner link or the website
   partner_id?: Identifier | null;
   utm?: Record<string, string> | null;
@@ -225,7 +227,14 @@ export type LeadPartner = {
 } & Pick<RaRecord, "id">;
 
 export type StaffRole =
-  "manager" | "sales_head" | "production_head" | "workshop" | "fulfillment";
+  | "owner"
+  | "office_head"
+  | "manager"
+  | "designer"
+  | "shop_typography"
+  | "shop_wide_format"
+  | "shop_signs"
+  | "installer";
 
 export type StaffRoleRecord = {
   sales_id: Identifier;
@@ -241,7 +250,8 @@ export type DealStageHistory = {
     | "assigned"
     | "released"
     | "call"
-    | "source";
+    | "source"
+    | "handoff";
   from_stage: string | null;
   to_stage: string | null;
   from_sales_id: Identifier | null;
