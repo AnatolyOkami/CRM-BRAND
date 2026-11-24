@@ -264,6 +264,34 @@ describe("handoff_deal_to_production", () => {
     assert.ok(await getOrder(deal.deal_id));
   });
 
+  it("is possible from the approval stages and not from the design stages", async () => {
+    const deal = await orderDeal("from approval");
+    let version = deal.version;
+    for (const to of ["design-task", "design-ready"]) {
+      const moved = await rpc(users.m1.token, "transition_deal", {
+        p_deal_id: deal.deal_id,
+        p_expected_version: version,
+        p_to_stage: to,
+      });
+      assert.equal(moved.status, 200, JSON.stringify(moved.body));
+      version = moved.body.version;
+    }
+    const early = await handoff(users.m1.token, { ...deal, version });
+    assert.equal(early.status, 422);
+    assert.match(JSON.stringify(early.body), /order_stage_required/);
+
+    const approval = await rpc(users.m1.token, "transition_deal", {
+      p_deal_id: deal.deal_id,
+      p_expected_version: version,
+      p_to_stage: "approval",
+    });
+    const res = await handoff(users.m1.token, {
+      ...deal,
+      version: approval.body.version,
+    });
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+  });
+
   it("locks the deal in production: only the finished order lets it go on", async () => {
     const { dealId } = await orderInWorkshop("locked");
     const row = await getDeal(dealId);

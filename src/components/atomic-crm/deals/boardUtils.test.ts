@@ -94,8 +94,35 @@ describe("planMove", () => {
     ).toEqual({ kind: "blocked", reason: "order_stage_required" });
   });
 
+  it("opens the handoff from the approval stages too", () => {
+    for (const stage of ["approval", "approved"]) {
+      expect(planMove({ stage, sales_id: 1 }, "sent-to-production")).toEqual({
+        kind: "ask-handoff",
+      });
+    }
+    expect(
+      planMove({ stage: "design-ready", sales_id: 1 }, "sent-to-production"),
+    ).toEqual({ kind: "blocked", reason: "order_stage_required" });
+  });
+
+  it("moves a deal through the design stages", () => {
+    for (const to of [
+      "design-task",
+      "design-in-progress",
+      "design-ready",
+      "approval",
+      "approved",
+    ]) {
+      expect(planMove({ stage: "order", sales_id: 1 }, to)).toEqual({
+        kind: "move",
+      });
+    }
+  });
+
   it("never lets a deal enter a stage of the old pipeline", () => {
     for (const stage of [
+      "proposal-sent",
+      "delayed",
       "to-contact",
       "contacted",
       "in-work",

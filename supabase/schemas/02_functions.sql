@@ -809,8 +809,8 @@ begin
   end if;
   v_head := private.is_sales_head();
 
-  -- The retired stages (to-contact, contacted, in-work, in-negociation, contract-signed) are never entered again
-  if p_to_stage is null or p_to_stage not in ('opportunity', 'processing', 'order', 'proposal-sent', 'sent-to-production', 'won', 'lost', 'delayed') then
+  -- The retired stages (proposal-sent, delayed, to-contact, contacted, in-work, in-negociation, contract-signed) are never entered again
+  if p_to_stage is null or p_to_stage not in ('opportunity', 'processing', 'order', 'design-task', 'design-in-progress', 'design-ready', 'approval', 'approved', 'sent-to-production', 'won', 'lost') then
     raise exception 'invalid_stage' using errcode = 'PT422';
   end if;
 
@@ -1170,9 +1170,9 @@ begin
   if p_expected_version is null or v_deal.version <> p_expected_version then
     raise exception 'deal_version_conflict' using errcode = 'PT409';
   end if;
-  if v_deal.stage not in ('order', 'contract-signed') then
+  if v_deal.stage not in ('order', 'approval', 'approved', 'contract-signed') then
     raise exception 'order_stage_required' using errcode = 'PT422',
-      hint = 'Move the deal to "order" before the handoff';
+      hint = 'Move the deal to "order", "approval" or "approved" before the handoff';
   end if;
   if v_name is null then
     raise exception 'product_name_required' using errcode = 'PT422';
