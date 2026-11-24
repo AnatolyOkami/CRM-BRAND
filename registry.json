@@ -748,6 +748,14 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/deals/boardScroll.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/deals/boardLayout.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/deals/PaymentDialog.tsx",
           "type": "registry:component"
         },
@@ -825,6 +833,10 @@
         },
         {
           "path": "src/components/atomic-crm/deals/CallResultDialog.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/deals/BoardScroller.tsx",
           "type": "registry:component"
         },
         {

@@ -123,7 +123,7 @@ describe("the order stage", () => {
     }
   });
 
-  it("does not send a deal to production through a plain stage change", async () => {
+  it('has no stage "sent to production": a plain stage change to it is refused', async () => {
     const deal = await orderDeal("plain move");
     const res = await rpc(users.m1.token, "transition_deal", {
       p_deal_id: deal.deal_id,
@@ -131,7 +131,7 @@ describe("the order stage", () => {
       p_to_stage: "sent-to-production",
     });
     assert.equal(res.status, 422);
-    assert.match(JSON.stringify(res.body), /handoff_required/);
+    assert.match(JSON.stringify(res.body), /invalid_stage/);
   });
 });
 
@@ -147,7 +147,7 @@ describe("handoff_deal_to_production", () => {
       p_links: [{ url: "https://drive.example.com/maket", label: "Макет" }],
     });
     assert.equal(res.status, 200, JSON.stringify(res.body));
-    assert.equal(res.body.stage, "sent-to-production");
+    assert.equal(res.body.stage, "order", "the card does not move");
     assert.equal(res.body.order_stage, "accepted");
 
     const order = await getOrder(deal.deal_id);
@@ -170,7 +170,9 @@ describe("handoff_deal_to_production", () => {
         ["link", "Макет"],
       ],
     );
-    assert.equal((await getDeal(deal.deal_id)).stage, "sent-to-production");
+    const marked = await getDeal(deal.deal_id);
+    assert.equal(marked.stage, "order");
+    assert.ok(marked.sent_to_production_at, "the card is marked as sent");
     const history = await rest(
       SECRET,
       "GET",
@@ -213,7 +215,7 @@ describe("handoff_deal_to_production", () => {
     const history = await rest(
       SECRET,
       "GET",
-      `/rest/v1/deal_stage_history?deal_id=eq.${deal.deal_id}&to_stage=eq.sent-to-production`,
+      `/rest/v1/deal_stage_history?deal_id=eq.${deal.deal_id}&event=eq.handoff`,
     );
     assert.equal(history.body.length, 1);
   });
@@ -264,46 +266,48 @@ describe("handoff_deal_to_production", () => {
     assert.ok(await getOrder(deal.deal_id));
   });
 
-  it("is possible from the approval stages and not from the design stages", async () => {
-    const deal = await orderDeal("from approval");
-    let version = deal.version;
-    for (const to of ["design-task", "design-ready"]) {
-      const moved = await rpc(users.m1.token, "transition_deal", {
-        p_deal_id: deal.deal_id,
-        p_expected_version: version,
-        p_to_stage: to,
-      });
-      assert.equal(moved.status, 200, JSON.stringify(moved.body));
-      version = moved.body.version;
-    }
-    const early = await handoff(users.m1.token, { ...deal, version });
-    assert.equal(early.status, 422);
-    assert.match(JSON.stringify(early.body), /order_stage_required/);
+  it("is possible from the order stage on, whatever the design stage, and not before", async () => {
+    const early = await rpc(users.m1.token, "create_manual_deal", {
+      p_name: "too early",
+      p_new_contact: { first_name: "E" },
+    });
+    const tooEarly = await handoff(users.m1.token, early.body);
+    assert.equal(tooEarly.status, 422);
+    assert.match(JSON.stringify(tooEarly.body), /order_stage_required/);
 
-    const approval = await rpc(users.m1.token, "transition_deal", {
+    // an agreed part may go before the design of the rest is over
+    const deal = await orderDeal("from design");
+    const moved = await rpc(users.m1.token, "transition_deal", {
       p_deal_id: deal.deal_id,
-      p_expected_version: version,
-      p_to_stage: "approval",
+      p_expected_version: deal.version,
+      p_to_stage: "design-ready",
     });
     const res = await handoff(users.m1.token, {
       ...deal,
-      version: approval.body.version,
+      version: moved.body.version,
     });
     assert.equal(res.status, 200, JSON.stringify(res.body));
+    assert.equal(res.body.stage, "design-ready");
   });
 
-  it("locks the deal in production: only the finished order lets it go on", async () => {
-    const { dealId } = await orderInWorkshop("locked");
+  it("keeps the deal on the board after the handoff, finished only with the order", async () => {
+    const { dealId } = await orderInWorkshop("on the board");
     const row = await getDeal(dealId);
-    for (const to of ["processing", "lost", "won"]) {
-      const res = await rpc(users.m1.token, "transition_deal", {
-        p_deal_id: dealId,
-        p_expected_version: row.version,
-        p_to_stage: to,
-        p_reason: "x",
-      });
-      assert.equal(res.status, 422, to);
-    }
+    const won = await rpc(users.m1.token, "transition_deal", {
+      p_deal_id: dealId,
+      p_expected_version: row.version,
+      p_to_stage: "won",
+    });
+    assert.equal(won.status, 422);
+    assert.match(JSON.stringify(won.body), /won_requires_ready_order/);
+
+    const moved = await rpc(users.m1.token, "transition_deal", {
+      p_deal_id: dealId,
+      p_expected_version: row.version,
+      p_to_stage: "approved",
+    });
+    assert.equal(moved.status, 200, JSON.stringify(moved.body));
+    assert.ok((await getDeal(dealId)).sent_to_production_at);
   });
 
   it("cannot be bypassed through the Data API", async () => {
@@ -421,9 +425,9 @@ describe("the workshop", () => {
     assert.equal(head.body.length, 1);
   });
 
-  it("is the only one who moves an order", async () => {
+  it("is the only one who moves an order, next to the owner who holds every role", async () => {
     const { orderId } = await orderInWorkshop("who moves");
-    for (const key of ["m1", "admin", "nobody"]) {
+    for (const key of ["m1", "nobody"]) {
       const res = await moveOrder(users[key].token, orderId, "in-progress", 1);
       assert.equal(res.status, 403, key);
     }

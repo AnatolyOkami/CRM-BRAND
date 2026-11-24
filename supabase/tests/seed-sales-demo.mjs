@@ -3,11 +3,11 @@
 //   npx supabase db reset --local && node supabase/tests/seed-sales-demo.mjs
 //
 // Accounts (password for all of them: Passw0rd!Passw0rd!):
-//   head@crm.test    administrator + manager + sales head
+//   head@crm.test    administrator + owner (holds every role)
 //   anna@crm.test    manager
 //   boris@crm.test   manager
-//   shop@crm.test    workshop: sees only the production board
-//   boss@crm.test    production head
+//   shop@crm.test    employee of the three workshops: sees only the production board
+//   boss@crm.test    office head
 //   nobody@crm.test  no working role yet
 import { execSync } from "node:child_process";
 
@@ -98,8 +98,8 @@ const setRoles = (who, roles) =>
   });
 await setRoles(anna, ["manager"]);
 await setRoles(boris, ["manager"]);
-await setRoles(shop, ["workshop"]);
-await setRoles(boss, ["production_head"]);
+await setRoles(shop, ["shop_typography", "shop_wide_format", "shop_signs"]);
+await setRoles(boss, ["office_head"]);
 
 const hoursAgo = (h) => new Date(Date.now() - h * 3600_000).toISOString();
 const requests = [

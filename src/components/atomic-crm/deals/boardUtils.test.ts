@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  canHandoff,
   describeCommandError,
   getNeighborId,
   getReplyStatus,
@@ -72,55 +73,40 @@ describe("getReplyStatus", () => {
 });
 
 describe("planMove", () => {
-  it("moves to won only from production", () => {
+  it("finishes a deal only after it was sent to production", () => {
     expect(
-      planMove({ stage: "sent-to-production", sales_id: 1 }, "won"),
+      planMove(
+        { stage: "approved", sales_id: 1, sent_to_production_at: "2026-11-24" },
+        "won",
+      ),
     ).toEqual({ kind: "move" });
-    expect(planMove({ stage: "order", sales_id: 1 }, "won")).toEqual({
+    expect(planMove({ stage: "approved", sales_id: 1 }, "won")).toEqual({
       kind: "blocked",
       reason: "won_requires_ready_order",
     });
   });
 
-  it("opens the handoff from the order stage, and from the old signed contract stage", () => {
-    expect(
-      planMove({ stage: "order", sales_id: 1 }, "sent-to-production"),
-    ).toEqual({ kind: "ask-handoff" });
-    expect(
-      planMove({ stage: "contract-signed", sales_id: 1 }, "sent-to-production"),
-    ).toEqual({ kind: "ask-handoff" });
-    expect(
-      planMove({ stage: "processing", sales_id: 1 }, "sent-to-production"),
-    ).toEqual({ kind: "blocked", reason: "order_stage_required" });
-  });
-
-  it("opens the handoff from the approval stages too", () => {
-    for (const stage of ["approval", "approved"]) {
-      expect(planMove({ stage, sales_id: 1 }, "sent-to-production")).toEqual({
-        kind: "ask-handoff",
-      });
-    }
-    expect(
-      planMove({ stage: "design-ready", sales_id: 1 }, "sent-to-production"),
-    ).toEqual({ kind: "blocked", reason: "order_stage_required" });
-  });
-
-  it("moves a deal through the design stages", () => {
-    for (const to of [
+  it("allows the handoff once, from the order stage on, whatever the design stage", () => {
+    for (const stage of [
+      "order",
       "design-task",
-      "design-in-progress",
       "design-ready",
       "approval",
       "approved",
+      "contract-signed",
     ]) {
-      expect(planMove({ stage: "order", sales_id: 1 }, to)).toEqual({
-        kind: "move",
-      });
+      expect(canHandoff({ stage })).toBe(true);
     }
+    expect(canHandoff({ stage: "processing" })).toBe(false);
+    expect(canHandoff({ stage: "lost" })).toBe(false);
+    expect(
+      canHandoff({ stage: "order", sent_to_production_at: "2026-11-24" }),
+    ).toBe(false);
   });
 
   it("never lets a deal enter a stage of the old pipeline", () => {
     for (const stage of [
+      "sent-to-production",
       "proposal-sent",
       "delayed",
       "to-contact",
@@ -142,10 +128,21 @@ describe("planMove", () => {
     ).toEqual({ kind: "move" });
   });
 
-  it("keeps a deal in production there", () => {
-    expect(
-      planMove({ stage: "sent-to-production", sales_id: 1 }, "processing"),
-    ).toEqual({ kind: "blocked", reason: "in_production_locked" });
+  it("moves a deal through the design stages", () => {
+    for (const to of [
+      "design-task",
+      "design-in-progress",
+      "design-ready",
+      "approval",
+      "approved",
+    ]) {
+      expect(planMove({ stage: "order", sales_id: 1 }, to)).toEqual({
+        kind: "move",
+      });
+    }
+  });
+
+  it("keeps a finished deal finished", () => {
     expect(planMove({ stage: "won", sales_id: 1 }, "processing")).toEqual({
       kind: "blocked",
       reason: "won_is_final",

@@ -42,8 +42,11 @@ create policy "Sales staff can insert contact notes" on public.contact_notes for
 create policy "Sales staff can update contact notes" on public.contact_notes for update to authenticated using ((select private.is_sales_staff())) with check ((select private.is_sales_staff()));
 create policy "Sales staff can delete contact notes" on public.contact_notes for delete to authenticated using ((select private.is_sales_staff()));
 
--- Deals: every sales person sees and edits every deal, colleagues included; owners and stages move only through the commands
-create policy "Deals are visible by role" on public.deals for select to authenticated using ((select private.is_sales_staff()));
+-- Deals: every sales person sees and edits every deal, colleagues included; a designer sees the deals of the design stages; owners and stages move only through the commands
+create policy "Deals are visible by role" on public.deals for select to authenticated using (
+    (select private.is_sales_staff())
+    or ((select private.is_designer()) and stage in ('design-task', 'design-in-progress', 'design-ready', 'approval', 'approved'))
+);
 create policy "Deals can be updated by role" on public.deals for update to authenticated using ((select private.is_sales_staff())) with check ((select private.is_sales_staff()));
 -- Inserts are limited by the deals_guard trigger to the import of past deals made by the sales head
 create policy "Sales head can insert deals" on public.deals for insert to authenticated with check ((select private.is_sales_head()));

@@ -38,7 +38,7 @@ import type {
   StaffRoleRecord,
   Task,
 } from "../types";
-import { getReplyStatus } from "./boardUtils";
+import { canHandoff, getReplyStatus } from "./boardUtils";
 import { formatDealCategories } from "./dealUtils";
 import type { useDealBoardCommands } from "./useDealBoardCommands";
 
@@ -221,6 +221,11 @@ export const DealCardContent = ({
               )}
             </div>
 
+            {deal.sent_to_production_at && (
+              <Badge variant="secondary" className="w-fit">
+                {translate("crm.board.sent_to_production")}
+              </Badge>
+            )}
             {order && <OrderIndicators order={order} />}
 
             <p className="truncate text-xs text-muted-foreground">
@@ -323,7 +328,14 @@ const CardMenu = ({
               </DropdownMenuItem>
             ))}
         </DropdownMenuGroup>
-        {(canRecordCall || canRelease) && <DropdownMenuSeparator />}
+        {(canRecordCall || canRelease || canHandoff(deal)) && (
+          <DropdownMenuSeparator />
+        )}
+        {canHandoff(deal) && (
+          <DropdownMenuItem onClick={() => commands.handoffDeal(deal)}>
+            {translate("crm.board.handoff")}
+          </DropdownMenuItem>
+        )}
         {canRecordCall && (
           <DropdownMenuItem onClick={() => commands.callDeal(deal)}>
             {translate("crm.board.call_result")}
@@ -352,7 +364,7 @@ const AssignItems = ({
 }) => {
   const translate = useTranslate();
   const { data: roles } = useGetList<StaffRoleRecord>("staff_roles", {
-    filter: { "role@in": "(manager,sales_head)" },
+    filter: { "role@in": "(manager,office_head,owner)" },
     pagination: { page: 1, perPage: 200 },
   });
   const { data: sales } = useGetList<{

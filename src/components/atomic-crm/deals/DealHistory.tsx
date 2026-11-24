@@ -69,6 +69,15 @@ const HistoryEntry = ({ entry }: { entry: DealStageHistory }) => {
     case "released":
       text = translate("crm.deal_history.released");
       break;
+    case "call":
+      text = translate("crm.deal_history.call");
+      break;
+    case "source":
+      text = translate("crm.deal_history.source");
+      break;
+    case "handoff":
+      text = translate("crm.deal_history.handoff");
+      break;
     default:
       text = translate("crm.deal_history.stage", {
         from: stageLabel(entry.from_stage),

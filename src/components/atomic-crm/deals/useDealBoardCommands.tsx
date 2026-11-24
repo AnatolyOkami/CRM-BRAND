@@ -32,6 +32,8 @@ export const useDealBoardCommands = (): {
   assignDeal: (deal: Deal, salesId: Identifier) => void;
   /** Opens the form where the manager records the result of a call */
   callDeal: (deal: Deal) => void;
+  /** Opens the form that sends the deal to production */
+  handoffDeal: (deal: Deal) => void;
   busy: boolean;
   /** The dialogs of the actions that ask something first: closing, handoff, call result */
   lostDialog: ReactNode;
@@ -105,9 +107,6 @@ export const useDealBoardCommands = (): {
         notify(describeCommandError(plan.reason).messageKey, {
           type: "warning",
         });
-        return;
-      case "ask-handoff":
-        setPendingHandoff(deal);
         return;
       case "ask-reason":
         setPendingClose({ deal, beforeDealId: options.beforeDealId });
@@ -189,6 +188,11 @@ export const useDealBoardCommands = (): {
     );
   };
 
+  const handoffDeal = (deal: Deal) => {
+    if (busy) return;
+    setPendingHandoff(deal);
+  };
+
   const callDeal = (deal: Deal) => {
     if (busy) return;
     setPendingCall(deal);
@@ -224,6 +228,7 @@ export const useDealBoardCommands = (): {
     releaseDeal,
     assignDeal,
     callDeal,
+    handoffDeal,
     busy,
     lostDialog,
   };

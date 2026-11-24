@@ -122,8 +122,8 @@ export const setupUsers = async () => {
   const roles = {
     m1: ["manager"],
     m2: ["manager"],
-    shop: ["workshop"],
-    boss: ["production_head"],
+    shop: ["shop_typography"],
+    boss: ["shop_signs"],
   };
   for (const [key, list] of Object.entries(roles)) {
     assert.equal((await setRoles(key, list)).status, 204);

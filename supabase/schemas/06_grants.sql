@@ -178,10 +178,14 @@ revoke all on function private.current_sales_id() from public, anon;
 revoke all on function private.has_role(text) from public, anon;
 revoke all on function private.is_sales_head() from public, anon;
 revoke all on function private.is_sales_staff() from public, anon;
+revoke all on function private.is_designer() from public, anon;
+revoke all on function private.is_installer() from public, anon;
 grant execute on function private.current_sales_id() to authenticated, service_role;
 grant execute on function private.has_role(text) to authenticated, service_role;
 grant execute on function private.is_sales_head() to authenticated, service_role;
 grant execute on function private.is_sales_staff() to authenticated, service_role;
+grant execute on function private.is_designer() to authenticated, service_role;
+grant execute on function private.is_installer() to authenticated, service_role;
 
 -- Internals of the commands: only the function owner calls them
 revoke all on function private.compute_first_response_due(timestamp with time zone) from public, anon, authenticated;

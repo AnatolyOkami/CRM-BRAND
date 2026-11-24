@@ -5,6 +5,7 @@ const FIRST_REPLY_STAGES = ["opportunity", "processing"];
 
 /** Stages of the old pipeline: a deal can leave them, nothing can enter them. */
 const RETIRED_STAGES = [
+  "sent-to-production",
   "proposal-sent",
   "delayed",
   "to-contact",
@@ -14,8 +15,22 @@ const RETIRED_STAGES = [
   "contract-signed",
 ];
 
-/** Stages from which a deal can be handed over to production (contract-signed: old deals). */
-const HANDOFF_STAGES = ["order", "approval", "approved", "contract-signed"];
+/** Stages from which a deal can be sent to production: from the agreed order on, whatever the design stage. */
+export const HANDOFF_STAGES = [
+  "order",
+  "design-task",
+  "design-in-progress",
+  "design-ready",
+  "approval",
+  "approved",
+  "contract-signed",
+];
+
+/** A deal can be sent to production once, from the order stage on. */
+export const canHandoff = (
+  deal: Pick<Deal, "stage"> & { sent_to_production_at?: string | null },
+): boolean =>
+  !deal.sent_to_production_at && HANDOFF_STAGES.includes(deal.stage);
 
 export type ReplyStatus =
   | { kind: "none" }
@@ -49,7 +64,6 @@ export const getReplyStatus = (
 export type MovePlan =
   | { kind: "noop" }
   | { kind: "blocked"; reason: string }
-  | { kind: "ask-handoff" }
   | { kind: "ask-reason" }
   | { kind: "release" }
   | { kind: "claim" }
@@ -57,7 +71,9 @@ export type MovePlan =
   | { kind: "move" };
 
 export const planMove = (
-  deal: Pick<Deal, "stage" | "sales_id">,
+  deal: Pick<Deal, "stage" | "sales_id"> & {
+    sent_to_production_at?: string | null;
+  },
   toStage: string,
   options: { sameColumnReorder?: boolean } = {},
 ): MovePlan => {
@@ -66,24 +82,15 @@ export const planMove = (
     return { kind: "noop" };
   }
   if (!sameStage) {
-    // A deal in production only goes on to won, a won deal stays won
+    // A finished deal stays finished
     if (deal.stage === "won")
       return { kind: "blocked", reason: "won_is_final" };
-    if (deal.stage === "sent-to-production" && toStage !== "won") {
-      return { kind: "blocked", reason: "in_production_locked" };
-    }
     if (RETIRED_STAGES.includes(toStage)) {
       return { kind: "blocked", reason: "invalid_stage" };
     }
-    if (toStage === "sent-to-production") {
-      return HANDOFF_STAGES.includes(deal.stage)
-        ? { kind: "ask-handoff" }
-        : { kind: "blocked", reason: "order_stage_required" };
-    }
-    if (toStage === "won") {
-      return deal.stage === "sent-to-production"
-        ? { kind: "move" }
-        : { kind: "blocked", reason: "won_requires_ready_order" };
+    // The order is finished only after the production has finished its part
+    if (toStage === "won" && !deal.sent_to_production_at) {
+      return { kind: "blocked", reason: "won_requires_ready_order" };
     }
   }
   if (toStage === "lost" && deal.stage !== "lost") {
