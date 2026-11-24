@@ -1,7 +1,16 @@
 import type { Deal } from "../types";
 
 /** Stages where the customer still waits for the first reply. */
-const FIRST_REPLY_STAGES = ["opportunity", "to-contact"];
+const FIRST_REPLY_STAGES = ["opportunity", "processing"];
+
+/** Stages of the old pipeline: a deal can leave them, nothing can enter them. */
+const RETIRED_STAGES = [
+  "to-contact",
+  "contacted",
+  "in-work",
+  "in-negociation",
+  "contract-signed",
+];
 
 export type ReplyStatus =
   | { kind: "none" }
@@ -36,7 +45,6 @@ export type MovePlan =
   | { kind: "noop" }
   | { kind: "blocked"; reason: string }
   | { kind: "ask-handoff" }
-  | { kind: "ask-contract" }
   | { kind: "ask-reason" }
   | { kind: "release" }
   | { kind: "claim" }
@@ -59,17 +67,19 @@ export const planMove = (
     if (deal.stage === "sent-to-production" && toStage !== "won") {
       return { kind: "blocked", reason: "in_production_locked" };
     }
+    if (RETIRED_STAGES.includes(toStage)) {
+      return { kind: "blocked", reason: "invalid_stage" };
+    }
     if (toStage === "sent-to-production") {
-      return deal.stage === "contract-signed"
+      return ["order", "contract-signed"].includes(deal.stage)
         ? { kind: "ask-handoff" }
-        : { kind: "blocked", reason: "contract_required" };
+        : { kind: "blocked", reason: "order_stage_required" };
     }
     if (toStage === "won") {
       return deal.stage === "sent-to-production"
         ? { kind: "move" }
         : { kind: "blocked", reason: "won_requires_ready_order" };
     }
-    if (toStage === "contract-signed") return { kind: "ask-contract" };
   }
   if (toStage === "lost" && deal.stage !== "lost") {
     return { kind: "ask-reason" };
@@ -81,7 +91,7 @@ export const planMove = (
     return { kind: "release" };
   }
   if (unassigned) {
-    return toStage === "to-contact"
+    return toStage === "processing"
       ? { kind: "claim" }
       : { kind: "claim-then-move" };
   }
@@ -109,7 +119,13 @@ const KNOWN_ERRORS = new Set([
   "handoff_required",
   "in_production_locked",
   "won_requires_ready_order",
-  "contract_required",
+  "order_stage_required",
+  "invalid_stage",
+  "result_required",
+  "recall_in_past",
+  "invalid_source",
+  "text_too_long",
+  "contact_required",
   "invalid_link",
   "product_name_required",
   "invalid_file",

@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/dialog";
 
 import { AutocompleteCompanyInput } from "../companies/AutocompleteCompanyInput";
+import { useLeadSources } from "../leads/useLeadSources";
 import { contactOptionText } from "../misc/ContactOption";
 import {
   DealCommandError,
@@ -35,7 +36,6 @@ import { useConfigurationContext } from "../root/ConfigurationContext";
 import type { CrmDataProvider } from "../providers/types";
 import { describeCommandError } from "./boardUtils";
 import {
-  DEAL_SOURCES,
   toLocalInputValue,
   toManualDealData,
   validateManualDeal,
@@ -72,6 +72,7 @@ const ManualDealForm = ({ onDone }: { onDone: () => void }) => {
   const dataProvider = useDataProvider<CrmDataProvider>();
   const queryClient = useQueryClient();
   const { dealCategories } = useConfigurationContext();
+  const { selectableFor } = useLeadSources();
   const getContactName = useGetRecordRepresentation("contacts");
   const [mode, setMode] = useState<ContactMode>("existing");
   const [submitting, setSubmitting] = useState(false);
@@ -109,7 +110,7 @@ const ManualDealForm = ({ onDone }: { onDone: () => void }) => {
     <Form
       className="flex flex-col gap-4"
       defaultValues={{
-        source: "phone",
+        source: "other",
         received_at: defaultReceivedAt,
         assign_to_me: true,
       }}
@@ -199,9 +200,9 @@ const ManualDealForm = ({ onDone }: { onDone: () => void }) => {
         <SelectInput
           source="source"
           label="crm.manual_deal.source"
-          choices={DEAL_SOURCES.map((value) => ({
-            id: value,
-            name: translate(`resources.deals.sources.${value}`),
+          choices={selectableFor().map((source) => ({
+            id: source.code,
+            name: source.label,
           }))}
           validate={required()}
           helperText={false}

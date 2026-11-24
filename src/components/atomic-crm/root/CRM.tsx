@@ -26,6 +26,8 @@ import { ConfirmationRequired } from "../login/ConfirmationRequired";
 import { ImportPage } from "../misc/ImportPage";
 import { ChangelogPage } from "../misc/ChangelogPage";
 import { AnalyticsPage } from "../analytics/AnalyticsPage";
+import { LeadIntakePage } from "../leads/LeadIntakePage";
+import { PartnerLeadForm } from "../leads/PartnerLeadForm";
 import { ProductionBoard } from "../production/ProductionBoard";
 import { TasksPage } from "../tasks/TasksPage";
 import { Landing } from "./Landing";
@@ -257,6 +259,7 @@ const DesktopAdmin = (
           element={<ForgotPasswordPage />}
         />
         <Route path={OAuthConsentPage.path} element={<OAuthConsentPage />} />
+        <Route path={PartnerLeadForm.path} element={<PartnerLeadForm />} />
       </CustomRoutes>
 
       <CustomRoutes>
@@ -267,6 +270,7 @@ const DesktopAdmin = (
         <Route path={TasksPage.path} element={<TasksPage />} />
         <Route path="/production" element={<ProductionBoard />} />
         <Route path={AnalyticsPage.path} element={<AnalyticsPage />} />
+        <Route path={LeadIntakePage.path} element={<LeadIntakePage />} />
       </CustomRoutes>
       <Resource name="deals" {...deals} />
       <Resource name="contacts" {...contacts} />
@@ -335,6 +339,7 @@ const MobileAdmin = (
             element={<ForgotPasswordPage />}
           />
           <Route path={OAuthConsentPage.path} element={<OAuthConsentPage />} />
+          <Route path={PartnerLeadForm.path} element={<PartnerLeadForm />} />
         </CustomRoutes>
         <CustomRoutes>
           <Route

@@ -2,16 +2,6 @@ import type { Identifier } from "ra-core";
 
 import type { DealSource, ManualDealData } from "../types";
 
-export const DEAL_SOURCES: DealSource[] = [
-  "phone",
-  "manual",
-  "website",
-  "avito",
-  "telegram",
-  "whatsapp",
-  "other",
-];
-
 export type ContactMode = "existing" | "new";
 
 export interface ManualDealFormValues {

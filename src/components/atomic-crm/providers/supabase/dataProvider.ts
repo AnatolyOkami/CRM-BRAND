@@ -30,10 +30,15 @@ import {
   DealCommandError,
   newRequestKey,
   type AssignDealParams,
+  type CallResultParams,
   type FinanceSummaryArgs,
   type HandoffParams,
   type OrderTransitionResult,
   type PaymentParams,
+  type SaveLeadPartnerParams,
+  type SaveLeadSourceParams,
+  type SavedLeadPartner,
+  type SetDealSourceParams,
   type TransitionDealParams,
   type TransitionOrderParams,
 } from "../commons/dealCommands";
@@ -70,16 +75,19 @@ const ORDER_FILES_BUCKET = "order-files";
 
 // Runs a deal command in the database. The database answers with HTTP 4xx and a code such as
 // deal_already_assigned, which is turned into a DealCommandError.
-const callDealCommand = async (
+const callCommand = async <T>(
   name: string,
   args: Record<string, unknown>,
-): Promise<DealCommandResult> => {
+): Promise<T> => {
   const { data, error, status } = await getSupabaseClient().rpc(name, args);
   if (error) {
     throw new DealCommandError(error.message, status);
   }
-  return data as DealCommandResult;
+  return data as T;
 };
+
+const callDealCommand = (name: string, args: Record<string, unknown>) =>
+  callCommand<DealCommandResult>(name, args);
 
 const getDataProviderWithCustomMethods = () => {
   const baseDataProvider = getBaseDataProvider();
@@ -258,8 +266,6 @@ const getDataProviderWithCustomMethods = () => {
       toStage,
       beforeDealId,
       reason,
-      contractSignedAt,
-      contractLink,
       requestKey = newRequestKey(),
     }: TransitionDealParams) {
       return callDealCommand("transition_deal", {
@@ -269,8 +275,65 @@ const getDataProviderWithCustomMethods = () => {
         p_before_deal_id: beforeDealId ?? null,
         p_reason: reason ?? null,
         p_request_key: requestKey,
-        p_contract_signed_at: contractSignedAt ?? null,
-        p_contract_link: contractLink ?? null,
+      });
+    },
+    async logCallResult({
+      dealId,
+      result,
+      agreements,
+      recallAt,
+      requestKey = newRequestKey(),
+    }: CallResultParams) {
+      return callDealCommand("log_call_result", {
+        p_deal_id: dealId,
+        p_result: result,
+        p_agreements: agreements || null,
+        p_recall_at: recallAt ?? null,
+        p_request_key: requestKey,
+      });
+    },
+    async setDealSource({
+      dealId,
+      expectedVersion,
+      source,
+      requestKey = newRequestKey(),
+    }: SetDealSourceParams) {
+      return callDealCommand("set_deal_source", {
+        p_deal_id: dealId,
+        p_expected_version: expectedVersion,
+        p_source: source,
+        p_request_key: requestKey,
+      });
+    },
+    async saveLeadPartner({
+      id,
+      name,
+      kind,
+      source,
+      isActive,
+    }: SaveLeadPartnerParams) {
+      return callCommand<SavedLeadPartner>("save_lead_partner", {
+        p_id: id,
+        p_name: name,
+        p_kind: kind,
+        p_source: source,
+        p_is_active: isActive,
+      });
+    },
+    async rotateLeadPartnerSecret(id: Identifier) {
+      return callCommand<string>("rotate_lead_partner_secret", { p_id: id });
+    },
+    async saveLeadSource({
+      code,
+      label,
+      isActive,
+      position,
+    }: SaveLeadSourceParams) {
+      await callCommand("save_lead_source", {
+        p_code: code,
+        p_label: label,
+        p_is_active: isActive,
+        p_position: position,
       });
     },
     async handoffDeal({

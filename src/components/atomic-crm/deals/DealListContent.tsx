@@ -1,5 +1,5 @@
 import { DragDropContext, type OnDragEndResponder } from "@hello-pangea/dnd";
-import { useGetIdentity, useListContext } from "ra-core";
+import { useGetIdentity, useGetList, useListContext } from "ra-core";
 import { useCallback, useRef } from "react";
 
 import { hasSalesRole, isSalesHead } from "../providers/commons/canAccess";
@@ -7,6 +7,7 @@ import { useConfigurationContext } from "../root/ConfigurationContext";
 import type { Deal } from "../types";
 import { getNeighborId } from "./boardUtils";
 import { DealColumn } from "./DealColumn";
+import { findDealLabel } from "./dealUtils";
 import { useDealBoardCommands } from "./useDealBoardCommands";
 
 /**
@@ -18,6 +19,23 @@ export const DealListContent = () => {
   const { filterValues } = useListContext();
   const { identity } = useGetIdentity();
   const commands = useDealBoardCommands();
+
+  // Old deals that signed a contract in the first pipeline: their column exists while they wait
+  const { total: legacyTotal } = useGetList<Deal>("deals", {
+    pagination: { page: 1, perPage: 1 },
+    sort: { field: "id", order: "ASC" },
+    filter: { stage: "contract-signed", "archived_at@is": null },
+  });
+  const columnStages =
+    (legacyTotal ?? 0) > 0
+      ? [
+          ...dealStages,
+          {
+            value: "contract-signed",
+            label: findDealLabel([], "contract-signed") ?? "contract-signed",
+          },
+        ]
+      : dealStages;
 
   // The cards each column currently shows, read when a card is dropped
   const columns = useRef<Record<string, Deal[]>>({});
@@ -58,7 +76,7 @@ export const DealListContent = () => {
     <>
       <DragDropContext onDragEnd={onDragEnd}>
         <div className="flex gap-3 overflow-x-auto pb-2">
-          {dealStages.map((stage) => (
+          {columnStages.map((stage) => (
             <DealColumn
               key={stage.value}
               stage={stage.value}

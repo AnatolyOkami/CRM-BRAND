@@ -1,11 +1,13 @@
 import { format } from "date-fns";
 
+import { retiredDealStages } from "../root/defaultConfiguration";
 import type { DealStage, LabeledValue } from "../types";
 
-export const findDealLabel = (dealStages: DealStage[], dealValue: string) => {
-  const dealStage = dealStages.find((stage) => stage.value === dealValue);
-  return dealStage?.label;
-};
+/** The label of a stage; a retired stage of the old pipeline still has one, for old history. */
+export const findDealLabel = (dealStages: DealStage[], dealValue: string) =>
+  [...dealStages, ...retiredDealStages].find(
+    (stage) => stage.value === dealValue,
+  )?.label;
 
 export const formatDealCategories = (
   dealCategories: LabeledValue[],
