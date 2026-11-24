@@ -29,17 +29,21 @@ export const defaultCompanySectors = [
 /**
  * Stage codes are system codes shared with the database (check constraint on deals.stage) and the
  * deal commands: never rename them. Only the labels may be edited. Leads enter "opportunity" ("New"),
- * a manager takes them to "processing" and agrees the order with the customer ("order").
+ * a manager takes them to "processing" and agrees the order with the customer ("order"); the design
+ * stages and the approval follow, then the production and the end of the order.
  */
 export const defaultDealStages = [
   { value: "opportunity", label: "Новая" },
   { value: "processing", label: "Обработка" },
   { value: "order", label: "Заказ" },
-  { value: "proposal-sent", label: "КП отправлено" },
+  { value: "design-task", label: "Задача для дизайнера" },
+  { value: "design-in-progress", label: "Взял в работу" },
+  { value: "design-ready", label: "Макет готов" },
+  { value: "approval", label: "Согласование" },
+  { value: "approved", label: "Согласован" },
   { value: "sent-to-production", label: "Отправлено на производство" },
   { value: "won", label: "Заказ завершён" },
   { value: "lost", label: "Отказ" },
-  { value: "delayed", label: "Отложена" },
 ];
 
 /**
@@ -47,6 +51,8 @@ export const defaultDealStages = [
  * but no deal can enter them again. "contract-signed" still has a column while old deals wait in it.
  */
 export const retiredDealStages = [
+  { value: "proposal-sent", label: "КП отправлено (старый этап)" },
+  { value: "delayed", label: "Отложена (старый этап)" },
   { value: "to-contact", label: "Связаться (старый этап)" },
   { value: "contacted", label: "Связались (старый этап)" },
   { value: "in-work", label: "В работе (старый этап)" },

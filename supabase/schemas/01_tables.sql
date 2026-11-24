@@ -99,10 +99,11 @@ create table public.deals (
     -- Rejects implausible dates, e.g. typos such as 5-digit years, plus BC dates and infinity, which the UI cannot display
     constraint deals_expected_closing_date_range check (expected_closing_date between '1900-01-01' and '2900-12-31'),
     -- Stage codes are system codes: labels are configurable, codes are not
-    -- The pipeline is new (opportunity) -> processing -> order. to-contact, contacted, in-work and
-    -- in-negociation are retired and stay valid only so that old history keeps its meaning;
-    -- contract-signed is kept for old deals and is never entered by a new one.
-    constraint deals_stage_check check (stage in ('opportunity', 'processing', 'order', 'proposal-sent', 'sent-to-production', 'won', 'lost', 'delayed', 'to-contact', 'contacted', 'in-work', 'in-negociation', 'contract-signed')),
+    -- The pipeline is new (opportunity) -> processing -> order -> design (design-task, design-in-progress,
+    -- design-ready) -> approval -> approved -> sent-to-production -> won, with lost on the side.
+    -- proposal-sent, delayed, to-contact, contacted, in-work, in-negociation and contract-signed are retired:
+    -- they stay valid only so that old history keeps its meaning, no deal enters them again.
+    constraint deals_stage_check check (stage in ('opportunity', 'processing', 'order', 'design-task', 'design-in-progress', 'design-ready', 'approval', 'approved', 'sent-to-production', 'won', 'lost', 'proposal-sent', 'delayed', 'to-contact', 'contacted', 'in-work', 'in-negociation', 'contract-signed')),
     constraint deals_intake_key_check check (intake_key is null or (partner_id is not null and length(intake_key) between 8 and 100)),
     constraint deals_utm_is_object check (utm is null or jsonb_typeof(utm) = 'object')
 );

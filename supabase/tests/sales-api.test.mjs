@@ -409,7 +409,7 @@ describe("transition_deal", () => {
     const stale = await rpc(users.m1.token, "transition_deal", {
       p_deal_id: deal.deal_id,
       p_expected_version: deal.version,
-      p_to_stage: "proposal-sent",
+      p_to_stage: "design-task",
     });
     assert.equal(stale.status, 409);
     assert.equal((await getDeal(deal.deal_id)).stage, "order");
@@ -498,6 +498,41 @@ describe("transition_deal", () => {
     });
     assert.equal(res.status, 422);
     assert.match(JSON.stringify(res.body), /claim_required/);
+  });
+
+  it("walks the stages of the technical task and refuses the retired ones", async () => {
+    const deal = await ownDeal("statuses");
+    let version = deal.version;
+    for (const to of [
+      "order",
+      "design-task",
+      "design-in-progress",
+      "design-ready",
+      "approval",
+      "approved",
+    ]) {
+      const res = await rpc(users.m1.token, "transition_deal", {
+        p_deal_id: deal.deal_id,
+        p_expected_version: version,
+        p_to_stage: to,
+      });
+      assert.equal(res.status, 200, `${to}: ${JSON.stringify(res.body)}`);
+      version = res.body.version;
+    }
+    for (const to of [
+      "proposal-sent",
+      "delayed",
+      "to-contact",
+      "contract-signed",
+    ]) {
+      const res = await rpc(users.m1.token, "transition_deal", {
+        p_deal_id: deal.deal_id,
+        p_expected_version: version,
+        p_to_stage: to,
+      });
+      assert.equal(res.status, 422, to);
+      assert.match(JSON.stringify(res.body), /invalid_stage/);
+    }
   });
 
   it("orders cards by neighbour id, not by screen position", async () => {

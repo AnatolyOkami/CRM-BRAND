@@ -13,14 +13,12 @@ const multiplier: Record<string, number> = {
   opportunity: 0.1,
   processing: 0.3,
   order: 0.85,
-  "to-contact": 0.15,
-  contacted: 0.2,
-  "in-work": 0.35,
-  "proposal-sent": 0.5,
-  "in-negociation": 0.8,
-  "contract-signed": 0.9,
+  "design-task": 0.85,
+  "design-in-progress": 0.85,
+  "design-ready": 0.9,
+  approval: 0.9,
+  approved: 0.95,
   "sent-to-production": 0.95,
-  delayed: 0.3,
 };
 
 const threeMonthsAgo = new Date(

@@ -801,7 +801,8 @@ export const englishCrmMessages = {
         in_production_locked: "A deal in production can only move on to won.",
         won_requires_ready_order:
           "A deal is won after its production order is ready.",
-        order_stage_required: 'First move the deal to "Order".',
+        order_stage_required:
+          'A deal can be handed over to production from "Order", "Approval" or "Approved".',
         invalid_stage: "Deals can no longer be moved to this stage.",
         result_required: "Describe how the call went.",
         recall_in_past: "The time of the call back has passed.",

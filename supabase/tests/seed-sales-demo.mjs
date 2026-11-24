@@ -135,7 +135,7 @@ const mine = await call(anna.token, "POST", "/rest/v1/rpc/create_manual_deal", {
 await call(anna.token, "POST", "/rest/v1/rpc/transition_deal", {
   p_deal_id: mine.deal_id,
   p_expected_version: mine.version,
-  p_to_stage: "proposal-sent",
+  p_to_stage: "design-task",
 });
 
 // A deal agreed with the customer ("order"): ready to be handed over to production from the board

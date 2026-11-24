@@ -5,12 +5,17 @@ const FIRST_REPLY_STAGES = ["opportunity", "processing"];
 
 /** Stages of the old pipeline: a deal can leave them, nothing can enter them. */
 const RETIRED_STAGES = [
+  "proposal-sent",
+  "delayed",
   "to-contact",
   "contacted",
   "in-work",
   "in-negociation",
   "contract-signed",
 ];
+
+/** Stages from which a deal can be handed over to production (contract-signed: old deals). */
+const HANDOFF_STAGES = ["order", "approval", "approved", "contract-signed"];
 
 export type ReplyStatus =
   | { kind: "none" }
@@ -71,7 +76,7 @@ export const planMove = (
       return { kind: "blocked", reason: "invalid_stage" };
     }
     if (toStage === "sent-to-production") {
-      return ["order", "contract-signed"].includes(deal.stage)
+      return HANDOFF_STAGES.includes(deal.stage)
         ? { kind: "ask-handoff" }
         : { kind: "blocked", reason: "order_stage_required" };
     }
