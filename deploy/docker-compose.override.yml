@@ -1,0 +1,15 @@
+# Placed next to the official docker-compose.yml of Supabase by server-setup.sh.
+services:
+  # Only the web server on this machine talks to the gateway: the internet reaches it through Caddy over HTTPS
+  api-gw:
+    ports: !override
+      - "127.0.0.1:8000:8000/tcp"
+  # The database pooler is for this machine only (backups, migrations)
+  supavisor:
+    ports: !override
+      - "127.0.0.1:${POSTGRES_PORT}:5432"
+      - "127.0.0.1:${POOLER_PROXY_PORT_TRANSACTION}:6543"
+  functions:
+    environment:
+      # Inside the stack SUPABASE_URL is internal, tokens are issued for the public address
+      SB_JWT_ISSUER: ${API_EXTERNAL_URL}

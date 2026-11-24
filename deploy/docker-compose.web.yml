@@ -1,0 +1,19 @@
+# The web server of the CRM: static files of the app and the HTTPS front of the Supabase gateway.
+# Caddy gets and renews the certificates by itself, the domains must already point to this server.
+services:
+  web:
+    image: caddy:2
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      WEB_DOMAIN: ${WEB_DOMAIN}
+      API_DOMAIN: ${API_DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ../dist:/srv/crm:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:

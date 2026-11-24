@@ -1,6 +1,7 @@
 // Based on https://github.com/supabase/supabase/blob/master/examples/edge-functions/supabase/functions/_shared/jwt/default.ts
 import * as jose from "jsr:@panva/jose@6";
 import { createClient, type User } from "jsr:@supabase/supabase-js@2";
+import { chooseVerificationKey } from "./jwtKey.ts";
 import { createErrorResponse } from "./utils.ts";
 
 const SUPABASE_JWT_ISSUER =
@@ -23,7 +24,15 @@ function getAuthToken(req: Request) {
   return token;
 }
 
+// Set on a self-hosted stack, which signs tokens with this secret (HS256)
+const SUPABASE_JWT_SECRET = Deno.env.get("JWT_SECRET");
+
 function verifySupabaseJWT(jwt: string) {
+  const { alg } = jose.decodeProtectedHeader(jwt);
+  const key = chooseVerificationKey(alg, SUPABASE_JWT_SECRET);
+  if (key.kind === "secret") {
+    return jose.jwtVerify(jwt, key.secret, { issuer: SUPABASE_JWT_ISSUER });
+  }
   return jose.jwtVerify(jwt, SUPABASE_JWT_KEYS, {
     issuer: SUPABASE_JWT_ISSUER,
   });
@@ -64,7 +73,10 @@ export const UserMiddleware = async (
     const authHeader = req.headers.get("Authorization")!;
     const localClient = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SB_PUBLISHABLE_KEY") ?? "",
+      // A self-hosted stack has the legacy anon key, no publishable key
+      Deno.env.get("SB_PUBLISHABLE_KEY") ??
+        Deno.env.get("SUPABASE_ANON_KEY") ??
+        "",
       { global: { headers: { Authorization: authHeader } } },
     );
 
