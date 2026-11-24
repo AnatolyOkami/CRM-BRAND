@@ -29,6 +29,7 @@ import { formatCompanyDateTime, useCompanyTimeZone } from "../misc/companyTime";
 import { getDateFnsLocale } from "../misc/RelativeDate";
 import { useConfigurationContext } from "../root/ConfigurationContext";
 import { useGetSalesName } from "../sales/useGetSalesName";
+import { useLeadSources } from "../leads/useLeadSources";
 import { OrderIndicators } from "../production/OrderIndicators";
 import type {
   Contact,
@@ -106,6 +107,7 @@ export const DealCardContent = ({
 }) => {
   const { dealCategories, currency } = useConfigurationContext();
   const translate = useTranslate();
+  const { labelOf: labelOfSource } = useLeadSources();
   const [locale = "ru"] = useLocaleState();
   const redirect = useRedirect();
   const timeZone = useCompanyTimeZone();
@@ -179,11 +181,7 @@ export const DealCardContent = ({
             </div>
 
             <div className="flex flex-wrap items-center gap-1">
-              <Badge variant="outline">
-                {translate(`resources.deals.sources.${deal.source}`, {
-                  _: deal.source,
-                })}
-              </Badge>
+              <Badge variant="outline">{labelOfSource(deal.source)}</Badge>
               {deal.categories?.length ? (
                 <span className="text-xs text-muted-foreground">
                   {formatDealCategories(dealCategories, deal.categories)}
@@ -287,7 +285,9 @@ const CardMenu = ({
   const canRelease =
     deal.sales_id != null &&
     (isOwner || viewer.isHead) &&
-    ["opportunity", "to-contact"].includes(deal.stage);
+    ["opportunity", "processing"].includes(deal.stage);
+  const canRecordCall =
+    deal.sales_id != null && !["won", "lost"].includes(deal.stage);
 
   return (
     <DropdownMenu>
@@ -323,13 +323,16 @@ const CardMenu = ({
               </DropdownMenuItem>
             ))}
         </DropdownMenuGroup>
+        {(canRecordCall || canRelease) && <DropdownMenuSeparator />}
+        {canRecordCall && (
+          <DropdownMenuItem onClick={() => commands.callDeal(deal)}>
+            {translate("crm.board.call_result")}
+          </DropdownMenuItem>
+        )}
         {canRelease && (
-          <>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => commands.releaseDeal(deal)}>
-              {translate("crm.board.release")}
-            </DropdownMenuItem>
-          </>
+          <DropdownMenuItem onClick={() => commands.releaseDeal(deal)}>
+            {translate("crm.board.release")}
+          </DropdownMenuItem>
         )}
         {viewer.isHead && !["won", "lost"].includes(deal.stage) && (
           <AssignItems deal={deal} commands={commands} />

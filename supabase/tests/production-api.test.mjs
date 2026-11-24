@@ -17,22 +17,25 @@ import {
 
 before(setupUsers);
 
-// A deal of the manager m1 that has reached "contract signed"
-const contractedDeal = async (name, owner = "m1") => {
+// A deal of the manager m1 that has reached the stage "order"
+const orderDeal = async (name, owner = "m1") => {
   const created = await rpc(users[owner].token, "create_manual_deal", {
     p_name: name,
     p_new_contact: { first_name: name, last_name: "Клиентов" },
     p_amount: 100000,
   });
   assert.equal(created.status, 200, JSON.stringify(created.body));
-  const signed = await rpc(users[owner].token, "transition_deal", {
-    p_deal_id: created.body.deal_id,
-    p_expected_version: created.body.version,
-    p_to_stage: "contract-signed",
-    p_contract_link: "https://example.com/contract.pdf",
-  });
-  assert.equal(signed.status, 200, JSON.stringify(signed.body));
-  return signed.body;
+  let signed = created.body;
+  for (const to of ["processing", "order"]) {
+    const moved = await rpc(users[owner].token, "transition_deal", {
+      p_deal_id: signed.deal_id,
+      p_expected_version: signed.version,
+      p_to_stage: to,
+    });
+    assert.equal(moved.status, 200, JSON.stringify(moved.body));
+    signed = moved.body;
+  }
+  return signed;
 };
 
 const upload = async (token, path, content = "print file") => {
@@ -68,7 +71,7 @@ const getOrder = async (dealId) =>
 
 // A signed deal handed over to the workshop: returns the order id
 const orderInWorkshop = async (name, extra = {}) => {
-  const deal = await contractedDeal(name);
+  const deal = await orderDeal(name);
   const res = await handoff(users.m1.token, deal, extra);
   assert.equal(res.status, 200, JSON.stringify(res.body));
   return { dealId: deal.deal_id, orderId: res.body.order_id };
@@ -91,32 +94,37 @@ const notificationsOf = async (orderId) =>
     )
   ).body;
 
-describe("contract signed", () => {
-  it("stores the date and the link of the signing and moves the deal", async () => {
-    const deal = await contractedDeal("contract data");
+describe("the order stage", () => {
+  it("is entered from processing and keeps the owner", async () => {
+    const deal = await orderDeal("order stage");
     const row = await getDeal(deal.deal_id);
-    assert.equal(row.stage, "contract-signed");
-    assert.equal(row.contract_link, "https://example.com/contract.pdf");
-    assert.match(row.contract_signed_at, /^\d{4}-\d{2}-\d{2}$/);
+    assert.equal(row.stage, "order");
+    assert.equal(row.sales_id, users.m1.salesId);
   });
 
-  it("rejects a link that is not http or https", async () => {
+  it("does not let a deal enter a retired stage", async () => {
     const created = await rpc(users.m1.token, "create_manual_deal", {
-      p_name: "bad link",
-      p_new_contact: { first_name: "L" },
+      p_name: "retired stage",
+      p_new_contact: { first_name: "R" },
     });
-    const res = await rpc(users.m1.token, "transition_deal", {
-      p_deal_id: created.body.deal_id,
-      p_expected_version: created.body.version,
-      p_to_stage: "contract-signed",
-      p_contract_link: "javascript:alert(1)",
-    });
-    assert.equal(res.status, 422);
-    assert.match(JSON.stringify(res.body), /invalid_link/);
+    for (const to of [
+      "contract-signed",
+      "to-contact",
+      "contacted",
+      "in-work",
+    ]) {
+      const res = await rpc(users.m1.token, "transition_deal", {
+        p_deal_id: created.body.deal_id,
+        p_expected_version: created.body.version,
+        p_to_stage: to,
+      });
+      assert.equal(res.status, 422, to);
+      assert.match(JSON.stringify(res.body), /invalid_stage/);
+    }
   });
 
   it("does not send a deal to production through a plain stage change", async () => {
-    const deal = await contractedDeal("plain move");
+    const deal = await orderDeal("plain move");
     const res = await rpc(users.m1.token, "transition_deal", {
       p_deal_id: deal.deal_id,
       p_expected_version: deal.version,
@@ -129,7 +137,7 @@ describe("contract signed", () => {
 
 describe("handoff_deal_to_production", () => {
   it("creates one order with files and links and moves the deal", async () => {
-    const deal = await contractedDeal("with materials");
+    const deal = await orderDeal("with materials");
     const path = `${deal.deal_id}/${RUN}-layout.txt`;
     assert.equal((await upload(users.m1.token, path)).status, 200);
 
@@ -184,7 +192,7 @@ describe("handoff_deal_to_production", () => {
   });
 
   it("returns the same order for a repeated and for a concurrent request", async () => {
-    const deal = await contractedDeal("twice");
+    const deal = await orderDeal("twice");
     const key = `handoff-${RUN}`;
     const [a, b, c] = await Promise.all([
       handoff(users.m1.token, deal, { p_request_key: key }),
@@ -211,7 +219,7 @@ describe("handoff_deal_to_production", () => {
   });
 
   it("validates the request", async () => {
-    const deal = await contractedDeal("validation");
+    const deal = await orderDeal("validation");
     const noName = await handoff(users.m1.token, deal, { p_product_name: " " });
     assert.equal(noName.status, 422);
     const badLink = await handoff(users.m1.token, deal, {
@@ -224,7 +232,7 @@ describe("handoff_deal_to_production", () => {
     });
     assert.match(JSON.stringify(missingFile.body), /invalid_file/);
     // a file of another deal cannot be attached
-    const other = await contractedDeal("other deal");
+    const other = await orderDeal("other deal");
     const otherPath = `${other.deal_id}/${RUN}-foreign.txt`;
     await upload(users.m1.token, otherPath);
     const foreign = await handoff(users.m1.token, deal, {
@@ -232,33 +240,34 @@ describe("handoff_deal_to_production", () => {
     });
     assert.match(JSON.stringify(foreign.body), /invalid_file/);
     assert.equal(await getOrder(deal.deal_id), undefined);
-    assert.equal((await getDeal(deal.deal_id)).stage, "contract-signed");
+    assert.equal((await getDeal(deal.deal_id)).stage, "order");
   });
 
-  it("needs a signed contract, a fresh version and the owner", async () => {
+  it("needs the order stage and a fresh version, and a colleague may hand over too", async () => {
     const created = await rpc(users.m1.token, "create_manual_deal", {
       p_name: "unsigned",
       p_new_contact: { first_name: "U" },
     });
     const early = await handoff(users.m1.token, created.body);
     assert.equal(early.status, 422);
-    assert.match(JSON.stringify(early.body), /contract_required/);
+    assert.match(JSON.stringify(early.body), /order_stage_required/);
 
-    const deal = await contractedDeal("owner rules");
+    const deal = await orderDeal("owner rules");
     const stale = await handoff(users.m1.token, {
       ...deal,
       version: deal.version - 1,
     });
     assert.equal(stale.status, 409);
-    const stranger = await handoff(users.m2.token, deal);
-    assert.equal(stranger.status, 403);
     assert.equal(await getOrder(deal.deal_id), undefined);
+    const colleague = await handoff(users.m2.token, deal);
+    assert.equal(colleague.status, 200, JSON.stringify(colleague.body));
+    assert.ok(await getOrder(deal.deal_id));
   });
 
   it("locks the deal in production: only the finished order lets it go on", async () => {
     const { dealId } = await orderInWorkshop("locked");
     const row = await getDeal(dealId);
-    for (const to of ["in-work", "lost", "won"]) {
+    for (const to of ["processing", "lost", "won"]) {
       const res = await rpc(users.m1.token, "transition_deal", {
         p_deal_id: dealId,
         p_expected_version: row.version,
@@ -270,7 +279,7 @@ describe("handoff_deal_to_production", () => {
   });
 
   it("cannot be bypassed through the Data API", async () => {
-    const deal = await contractedDeal("bypass");
+    const deal = await orderDeal("bypass");
     const insert = await rest(
       users.m1.token,
       "POST",
@@ -332,7 +341,7 @@ describe("the workshop", () => {
   });
 
   it("reads the files of an order, and only of an order", async () => {
-    const deal = await contractedDeal("files access");
+    const deal = await orderDeal("files access");
     const path = `${deal.deal_id}/${RUN}-print.txt`;
     await upload(users.m1.token, path, "secret layout");
     // before the handoff the workshop has no right to the file
@@ -346,8 +355,8 @@ describe("the workshop", () => {
     assert.equal(shop.status, 200);
     assert.equal(await shop.text(), "secret layout");
     assert.equal((await download(users.m1.token, path)).status, 200);
-    // another manager has no access to the deal, so none to its files
-    assert.notEqual((await download(users.m2.token, path)).status, 200);
+    // a colleague works with the deal, so with its files too
+    assert.equal((await download(users.m2.token, path)).status, 200);
     assert.notEqual((await download(users.nobody.token, path)).status, 200);
     // the bucket is private: there is no public address
     const anon = await fetch(
@@ -356,7 +365,7 @@ describe("the workshop", () => {
     assert.notEqual(anon.status, 200);
   });
 
-  it("is hidden from managers who do not own the deal and from people without a role", async () => {
+  it("is visible to every manager and hidden from people without a role", async () => {
     const { orderId } = await orderInWorkshop("visibility");
     const own = await rest(
       users.m1.token,
@@ -364,14 +373,18 @@ describe("the workshop", () => {
       `/rest/v1/production_orders?id=eq.${orderId}`,
     );
     assert.equal(own.body.length, 1);
-    for (const key of ["m2", "nobody"]) {
-      const res = await rest(
-        users[key].token,
-        "GET",
-        `/rest/v1/production_orders?id=eq.${orderId}`,
-      );
-      assert.deepEqual(res.body, [], key);
-    }
+    const colleague = await rest(
+      users.m2.token,
+      "GET",
+      `/rest/v1/production_orders?id=eq.${orderId}`,
+    );
+    assert.equal(colleague.body.length, 1);
+    const outsider = await rest(
+      users.nobody.token,
+      "GET",
+      `/rest/v1/production_orders?id=eq.${orderId}`,
+    );
+    assert.deepEqual(outsider.body, []);
     const head = await rest(
       users.admin.token,
       "GET",

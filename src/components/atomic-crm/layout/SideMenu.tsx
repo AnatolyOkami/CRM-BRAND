@@ -3,6 +3,7 @@ import {
   Building2,
   CheckSquare,
   Factory,
+  Inbox,
   KanbanSquare,
   Settings,
   UserCog,
@@ -15,6 +16,7 @@ import { Link, matchPath, useLocation } from "react-router";
 import {
   hasProductionRole,
   hasSalesRole,
+  isSalesHead,
 } from "../providers/commons/canAccess";
 import { useConfigurationContext } from "../root/ConfigurationContext";
 
@@ -71,6 +73,9 @@ export const SideMenu = () => {
   // Without tracked roles (demo mode) there is no workshop
   const showProduction =
     identity?.roles != null && hasProductionRole(identity.roles);
+  // Sources of leads and partner links are set by administrators and the sales head
+  const showLeadSettings =
+    identity?.administrator === true || isSalesHead(identity?.roles);
 
   return (
     <aside
@@ -103,6 +108,17 @@ export const SideMenu = () => {
               match: "/production/*",
             }}
             active={!!matchPath("/production/*", location.pathname)}
+          />
+        )}
+        {showLeadSettings && (
+          <SideMenuLink
+            item={{
+              to: "/lead-intake",
+              labelKey: "crm.menu.lead_intake",
+              icon: Inbox,
+              match: "/lead-intake/*",
+            }}
+            active={!!matchPath("/lead-intake/*", location.pathname)}
           />
         )}
         <CanAccess resource="sales" action="list">

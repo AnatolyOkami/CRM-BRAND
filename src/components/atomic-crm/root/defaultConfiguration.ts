@@ -28,21 +28,30 @@ export const defaultCompanySectors = [
 
 /**
  * Stage codes are system codes shared with the database (check constraint on deals.stage) and the
- * deal commands: never rename them. Only the labels may be edited. "in-negociation" keeps the
- * spelling of the upstream repository on purpose.
+ * deal commands: never rename them. Only the labels may be edited. Leads enter "opportunity" ("New"),
+ * a manager takes them to "processing" and agrees the order with the customer ("order").
  */
 export const defaultDealStages = [
-  { value: "opportunity", label: "Новые заявки" },
-  { value: "to-contact", label: "Связаться" },
-  { value: "contacted", label: "Связались" },
-  { value: "in-work", label: "В работе" },
+  { value: "opportunity", label: "Новая" },
+  { value: "processing", label: "Обработка" },
+  { value: "order", label: "Заказ" },
   { value: "proposal-sent", label: "КП отправлено" },
-  { value: "in-negociation", label: "Согласование и оплата" },
-  { value: "contract-signed", label: "Договор подписан" },
   { value: "sent-to-production", label: "Отправлено на производство" },
-  { value: "won", label: "Выиграна" },
-  { value: "lost", label: "Закрыта без продажи" },
+  { value: "won", label: "Заказ завершён" },
+  { value: "lost", label: "Отказ" },
   { value: "delayed", label: "Отложена" },
+];
+
+/**
+ * Stages of the first pipeline. Old history and old deals still refer to them, so they keep a label,
+ * but no deal can enter them again. "contract-signed" still has a column while old deals wait in it.
+ */
+export const retiredDealStages = [
+  { value: "to-contact", label: "Связаться (старый этап)" },
+  { value: "contacted", label: "Связались (старый этап)" },
+  { value: "in-work", label: "В работе (старый этап)" },
+  { value: "in-negociation", label: "Согласование и оплата (старый этап)" },
+  { value: "contract-signed", label: "Договор подписан (старый этап)" },
 ];
 
 // Stages left out of the pipeline widget of the dashboard

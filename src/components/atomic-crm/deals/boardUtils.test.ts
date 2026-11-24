@@ -25,7 +25,7 @@ describe("getReplyStatus", () => {
   it("is pending before the deadline", () => {
     const status = getReplyStatus(
       {
-        stage: "to-contact",
+        stage: "processing",
         first_response_due_at: "2026-11-20T13:00:00.000Z",
         first_responded_at: null,
       },
@@ -76,64 +76,82 @@ describe("planMove", () => {
     expect(
       planMove({ stage: "sent-to-production", sales_id: 1 }, "won"),
     ).toEqual({ kind: "move" });
-    expect(planMove({ stage: "in-work", sales_id: 1 }, "won")).toEqual({
+    expect(planMove({ stage: "order", sales_id: 1 }, "won")).toEqual({
       kind: "blocked",
       reason: "won_requires_ready_order",
     });
   });
 
-  it("opens the handoff only from a signed contract", () => {
+  it("opens the handoff from the order stage, and from the old signed contract stage", () => {
+    expect(
+      planMove({ stage: "order", sales_id: 1 }, "sent-to-production"),
+    ).toEqual({ kind: "ask-handoff" });
     expect(
       planMove({ stage: "contract-signed", sales_id: 1 }, "sent-to-production"),
     ).toEqual({ kind: "ask-handoff" });
     expect(
-      planMove({ stage: "proposal-sent", sales_id: 1 }, "sent-to-production"),
-    ).toEqual({ kind: "blocked", reason: "contract_required" });
+      planMove({ stage: "processing", sales_id: 1 }, "sent-to-production"),
+    ).toEqual({ kind: "blocked", reason: "order_stage_required" });
   });
 
-  it("asks for the signing data when a deal gets a signed contract", () => {
+  it("never lets a deal enter a stage of the old pipeline", () => {
+    for (const stage of [
+      "to-contact",
+      "contacted",
+      "in-work",
+      "in-negociation",
+      "contract-signed",
+    ]) {
+      expect(planMove({ stage: "processing", sales_id: 1 }, stage)).toEqual({
+        kind: "blocked",
+        reason: "invalid_stage",
+      });
+    }
+  });
+
+  it("lets an old deal leave the signed contract stage", () => {
     expect(
-      planMove({ stage: "in-negociation", sales_id: 1 }, "contract-signed"),
-    ).toEqual({ kind: "ask-contract" });
+      planMove({ stage: "contract-signed", sales_id: 1 }, "order"),
+    ).toEqual({ kind: "move" });
   });
 
   it("keeps a deal in production there", () => {
     expect(
-      planMove({ stage: "sent-to-production", sales_id: 1 }, "in-work"),
+      planMove({ stage: "sent-to-production", sales_id: 1 }, "processing"),
     ).toEqual({ kind: "blocked", reason: "in_production_locked" });
-    expect(planMove({ stage: "won", sales_id: 1 }, "in-work")).toEqual({
+    expect(planMove({ stage: "won", sales_id: 1 }, "processing")).toEqual({
       kind: "blocked",
       reason: "won_is_final",
     });
   });
 
   it("asks for a reason before closing", () => {
-    expect(planMove({ stage: "in-work", sales_id: 1 }, "lost")).toEqual({
+    expect(planMove({ stage: "processing", sales_id: 1 }, "lost")).toEqual({
       kind: "ask-reason",
     });
   });
 
-  it("takes an unassigned deal when it is dropped on the first working stage", () => {
+  it("takes an unassigned deal when it is dropped on processing", () => {
     expect(
-      planMove({ stage: "opportunity", sales_id: null }, "to-contact"),
+      planMove({ stage: "opportunity", sales_id: null }, "processing"),
     ).toEqual({ kind: "claim" });
-    expect(
-      planMove({ stage: "opportunity", sales_id: null }, "in-work"),
-    ).toEqual({ kind: "claim-then-move" });
+    expect(planMove({ stage: "opportunity", sales_id: null }, "order")).toEqual(
+      { kind: "claim-then-move" },
+    );
   });
 
   it("returns an owned deal to the queue when it is dropped on new requests", () => {
     expect(
-      planMove({ stage: "to-contact", sales_id: 3 }, "opportunity"),
+      planMove({ stage: "processing", sales_id: 3 }, "opportunity"),
     ).toEqual({ kind: "release" });
   });
 
   it("does nothing for the same column unless the order changes", () => {
-    expect(planMove({ stage: "in-work", sales_id: 1 }, "in-work")).toEqual({
+    expect(planMove({ stage: "order", sales_id: 1 }, "order")).toEqual({
       kind: "noop",
     });
     expect(
-      planMove({ stage: "in-work", sales_id: 1 }, "in-work", {
+      planMove({ stage: "order", sales_id: 1 }, "order", {
         sameColumnReorder: true,
       }),
     ).toEqual({ kind: "move" });

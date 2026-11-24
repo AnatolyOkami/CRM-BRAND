@@ -34,6 +34,7 @@ import type { Deal } from "../types";
 import { getReplyStatus } from "./boardUtils";
 import { ContactList } from "./ContactList";
 import { DealHistory } from "./DealHistory";
+import { DealIntake } from "./DealIntake";
 import { DealOrderBlock } from "./DealOrderBlock";
 import { DealPayments } from "./DealPayments";
 import {
@@ -164,13 +165,11 @@ const DealShowContent = () => {
             </div>
           </div>
 
+          <div className="m-4">
+            <DealIntake deal={record} />
+          </div>
+
           <div className="m-4 grid gap-4 sm:grid-cols-4">
-            <DealFact
-              label={translate("resources.deals.fields.source")}
-              value={translate(`resources.deals.sources.${record.source}`, {
-                _: record.source,
-              })}
-            />
             <DealFact
               label={translate("resources.deals.fields.received_at")}
               value={formatCompanyDateTime(

@@ -35,13 +35,52 @@ export type TransitionDealParams = {
   dealId: Identifier;
   expectedVersion: number;
   toStage: string;
-  /** Only for "contract signed": the date of the signing (today by default) and an optional link. */
-  contractSignedAt?: string;
-  contractLink?: string;
   /** The card that must follow the moved one in the target column. */
   beforeDealId?: Identifier | null;
   reason?: string;
   requestKey?: string;
+};
+
+export type CallResultParams = {
+  dealId: Identifier;
+  /** How the call went */
+  result: string;
+  /** What was agreed with the customer */
+  agreements?: string;
+  /** ISO moment of the call back: a task for the manager is planned for it */
+  recallAt?: string | null;
+  requestKey?: string;
+};
+
+export type SetDealSourceParams = {
+  dealId: Identifier;
+  expectedVersion: number;
+  source: string;
+  requestKey?: string;
+};
+
+export type SaveLeadPartnerParams = {
+  /** null creates a new partner */
+  id: Identifier | null;
+  name: string;
+  kind: "partner" | "website";
+  source: string;
+  isActive: boolean;
+};
+
+/** The signing secret is present only when a website connection has just been created. */
+export type SavedLeadPartner = {
+  id: Identifier;
+  code: string;
+  kind: "partner" | "website";
+  secret: string | null;
+};
+
+export type SaveLeadSourceParams = {
+  code: string;
+  label: string;
+  isActive: boolean;
+  position: number;
 };
 
 export type AssignDealParams = {

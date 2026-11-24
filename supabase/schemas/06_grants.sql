@@ -195,12 +195,12 @@ revoke all on function public.deals_guard() from public, anon, authenticated;
 
 -- Commands callable by a signed-in person: every one of them checks auth.uid() and the working role
 revoke all on function public.claim_deal(bigint, integer, text) from public, anon;
-revoke all on function public.transition_deal(bigint, integer, text, bigint, text, text, date, text) from public, anon;
+revoke all on function public.transition_deal(bigint, integer, text, bigint, text, text) from public, anon;
 revoke all on function public.assign_deal(bigint, integer, bigint, text, text) from public, anon;
 revoke all on function public.create_manual_deal(text, bigint, jsonb, bigint, text, text, timestamp with time zone, text[], bigint, boolean, text) from public, anon;
 revoke all on function public.set_staff_roles(bigint, text[]) from public, anon;
 grant execute on function public.claim_deal(bigint, integer, text) to authenticated, service_role;
-grant execute on function public.transition_deal(bigint, integer, text, bigint, text, text, date, text) to authenticated, service_role;
+grant execute on function public.transition_deal(bigint, integer, text, bigint, text, text) to authenticated, service_role;
 grant execute on function public.assign_deal(bigint, integer, bigint, text, text) to authenticated, service_role;
 grant execute on function public.create_manual_deal(text, bigint, jsonb, bigint, text, text, timestamp with time zone, text[], bigint, boolean, text) to authenticated, service_role;
 grant execute on function public.set_staff_roles(bigint, text[]) to authenticated, service_role;
@@ -275,3 +275,38 @@ grant all on sequence public.deal_payments_id_seq to service_role;
 revoke all on table public.deals_finance from anon, authenticated;
 grant select on table public.deals_finance to authenticated;
 grant all on table public.deals_finance to service_role;
+
+--
+-- Inbound leads, sources and the call result
+--
+
+revoke all on function private.can_manage_intake() from public, anon;
+grant execute on function private.can_manage_intake() to authenticated, service_role;
+
+revoke all on function public.set_deal_source(bigint, integer, text, text) from public, anon;
+revoke all on function public.log_call_result(bigint, text, text, timestamp with time zone, text) from public, anon;
+revoke all on function public.save_lead_partner(bigint, text, text, text, boolean) from public, anon;
+revoke all on function public.rotate_lead_partner_secret(bigint) from public, anon;
+revoke all on function public.save_lead_source(text, text, boolean, integer) from public, anon;
+grant execute on function public.set_deal_source(bigint, integer, text, text) to authenticated, service_role;
+grant execute on function public.log_call_result(bigint, text, text, timestamp with time zone, text) to authenticated, service_role;
+grant execute on function public.save_lead_partner(bigint, text, text, text, boolean) to authenticated, service_role;
+grant execute on function public.rotate_lead_partner_secret(bigint) to authenticated, service_role;
+grant execute on function public.save_lead_source(text, text, boolean, integer) to authenticated, service_role;
+
+-- The intake function runs with the service role: the public form never reaches these directly
+revoke all on function public.get_intake_partner(text) from public, anon, authenticated;
+revoke all on function public.intake_lead(text, text, text, text, text, jsonb) from public, anon, authenticated;
+grant execute on function public.get_intake_partner(text) to service_role;
+grant execute on function public.intake_lead(text, text, text, text, text, jsonb) to service_role;
+
+revoke all on table public.lead_sources from anon, authenticated;
+revoke all on table public.lead_partners from anon, authenticated;
+grant select on table public.lead_sources to authenticated;
+grant select on table public.lead_partners to authenticated;
+grant all on table public.lead_sources to service_role;
+grant all on sequence public.lead_sources_id_seq to service_role;
+grant all on table public.lead_partners to service_role;
+grant all on sequence public.lead_partners_id_seq to service_role;
+revoke all on table private.lead_partner_secrets from public, anon, authenticated;
+grant all on table private.lead_partner_secrets to service_role;

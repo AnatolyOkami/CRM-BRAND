@@ -41,12 +41,7 @@ export const generateDeals = (db: Db): Deal[] => {
       expected_closing_date,
       sales_id: company.sales_id!,
       index: 0,
-      source: random.arrayElement([
-        "website",
-        "avito",
-        "telegram",
-        "phone",
-      ] as const),
+      source: random.arrayElement(["website", "avito", "yandex-maps", "2gis"]),
       received_at: created_at,
       first_response_due_at: created_at,
       first_responded_at: created_at,

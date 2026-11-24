@@ -137,8 +137,12 @@ export type Deal = {
   version: number;
   lost_reason?: string | null;
   is_historical?: boolean;
+  // Contracts are no longer a step of the process; the data of old deals stays readable
   contract_signed_at?: string | null;
   contract_link?: string | null;
+  // Leads that came through a partner link or the website
+  partner_id?: Identifier | null;
+  utm?: Record<string, string> | null;
 } & Pick<RaRecord, "id">;
 
 export type ProductionStage = "accepted" | "in-progress" | "ready";
@@ -198,8 +202,27 @@ export type NotificationEvent = {
   acknowledged_at: string | null;
 } & Pick<RaRecord, "id">;
 
-export type DealSource =
-  "website" | "avito" | "telegram" | "whatsapp" | "phone" | "manual" | "other";
+/** A code of lead_sources: the list is edited by the administrator, so it is not a closed union. */
+export type DealSource = string;
+
+/** A source of leads. The code is stored on deals, the label is what people read. */
+export type LeadSource = {
+  code: DealSource;
+  label: string;
+  is_active: boolean;
+  position: number;
+} & Pick<RaRecord, "id">;
+
+/** A partner link (short public form) or the website connection that sends leads in. */
+export type LeadPartner = {
+  name: string;
+  kind: "partner" | "website";
+  source: DealSource;
+  /** The code in the link of the form; it identifies the partner */
+  code: string;
+  is_active: boolean;
+  created_at: string;
+} & Pick<RaRecord, "id">;
 
 export type StaffRole =
   "manager" | "sales_head" | "production_head" | "workshop" | "fulfillment";
@@ -211,7 +234,14 @@ export type StaffRoleRecord = {
 
 export type DealStageHistory = {
   deal_id: Identifier;
-  event: "created" | "claimed" | "stage" | "assigned" | "released";
+  event:
+    | "created"
+    | "claimed"
+    | "stage"
+    | "assigned"
+    | "released"
+    | "call"
+    | "source";
   from_stage: string | null;
   to_stage: string | null;
   from_sales_id: Identifier | null;

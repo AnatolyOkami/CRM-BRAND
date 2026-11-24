@@ -332,6 +332,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/providers/fakerest/dataGenerator/leadSources.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/providers/fakerest/dataGenerator/index.ts",
           "type": "registry:component"
         },
@@ -624,6 +628,42 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/leads/useLeadSources.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/leads/partnerLinks.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/leads/leadSourceUtils.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/leads/leadForm.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/leads/PartnerSecretDialog.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/leads/PartnerLeadForm.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/leads/LeadSourcesSection.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/leads/LeadPartnersSection.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/leads/LeadIntakePage.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/layout/useRefreshData.ts",
           "type": "registry:component"
         },
@@ -684,6 +724,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/deals/lostReasons.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/deals/index.ts",
           "type": "registry:component"
         },
@@ -693,6 +737,10 @@
         },
         {
           "path": "src/components/atomic-crm/deals/dealUtils.ts",
+          "type": "registry:component"
+        },
+        {
+          "path": "src/components/atomic-crm/deals/callResultUtils.ts",
           "type": "registry:component"
         },
         {
@@ -736,6 +784,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/deals/DealIntake.tsx",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/deals/DealInputs.tsx",
           "type": "registry:component"
         },
@@ -768,11 +820,11 @@
           "type": "registry:component"
         },
         {
-          "path": "src/components/atomic-crm/deals/ContractDialog.tsx",
+          "path": "src/components/atomic-crm/deals/ContactList.tsx",
           "type": "registry:component"
         },
         {
-          "path": "src/components/atomic-crm/deals/ContactList.tsx",
+          "path": "src/components/atomic-crm/deals/CallResultDialog.tsx",
           "type": "registry:component"
         },
         {

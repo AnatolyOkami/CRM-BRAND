@@ -33,6 +33,7 @@ import {
   DealCommandError,
   type AssignDealParams,
   type OrderTransitionResult,
+  type SavedLeadPartner,
   type TransitionDealParams,
 } from "../commons/dealCommands";
 import { getCompanyAvatar } from "../commons/getCompanyAvatar";
@@ -168,13 +169,13 @@ export const createDataProvider = ({
   const getIdentity = async () =>
     authProvider?.getIdentity?.() ?? defaultAuthProvider.getIdentity?.();
 
-  // Gives the deal to a person, moves it to "to-contact" and adds the first contact task
+  // Gives the deal to a person, moves it to "processing" and adds the first contact task
   const assignInMemory = async (deal: Deal, salesId: Identifier) => {
     await baseDataProvider.update("deals", {
       id: deal.id,
       data: {
         sales_id: salesId,
-        stage: "to-contact",
+        stage: "processing",
         version: (deal.version ?? 1) + 1,
       },
       previousData: deal,
@@ -197,7 +198,7 @@ export const createDataProvider = ({
     return {
       deal_id: deal.id,
       version: (deal.version ?? 1) + 1,
-      stage: "to-contact",
+      stage: "processing",
       sales_id: salesId,
       task_id: taskId,
       replayed: false,
@@ -308,10 +309,6 @@ export const createDataProvider = ({
                     index,
                     version: (deal.version ?? 1) + 1,
                     lost_reason: toStage === "lost" ? reason : null,
-                    first_responded_at:
-                      toStage === "contacted" && !deal.first_responded_at
-                        ? new Date().toISOString()
-                        : deal.first_responded_at,
                   }
                 : { index },
             previousData: d,
@@ -430,6 +427,22 @@ export const createDataProvider = ({
     },
     getPendingNotifications: async (): Promise<NotificationEvent[]> => [],
     registerPayment: async () => {
+      throw new DealCommandError("not_available_in_demo");
+    },
+    // Calls, sources and partner links need the real backend
+    logCallResult: async (): Promise<DealCommandResult> => {
+      throw new DealCommandError("not_available_in_demo");
+    },
+    setDealSource: async (): Promise<DealCommandResult> => {
+      throw new DealCommandError("not_available_in_demo");
+    },
+    saveLeadPartner: async (): Promise<SavedLeadPartner> => {
+      throw new DealCommandError("not_available_in_demo");
+    },
+    rotateLeadPartnerSecret: async (): Promise<string> => {
+      throw new DealCommandError("not_available_in_demo");
+    },
+    saveLeadSource: async (): Promise<void> => {
       throw new DealCommandError("not_available_in_demo");
     },
     getFinanceSummary: async (): Promise<FinanceSummary> => ({

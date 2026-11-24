@@ -11,6 +11,8 @@ import type { Deal } from "../types";
 // Probability of closing per stage, keyed by the system stage codes
 const multiplier: Record<string, number> = {
   opportunity: 0.1,
+  processing: 0.3,
+  order: 0.85,
   "to-contact": 0.15,
   contacted: 0.2,
   "in-work": 0.35,
